@@ -1,5 +1,6 @@
 import { Effect, PubSub, Semaphore, Stream } from "effect";
 import { CONTROLLER_EVENTS } from "@local-studio/contracts/controller-events";
+import type { RemoteDeploymentView } from "@local-studio/contracts/remote-deployments";
 
 export class Event {
   public readonly type: string;
@@ -145,6 +146,12 @@ export class EventManager {
     const payload: Record<string, unknown> = { recipe_id: recipeId, stage, message };
     if (progress !== undefined) payload["progress"] = progress;
     return this.publish(new Event(CONTROLLER_EVENTS.LAUNCH_PROGRESS, payload));
+  }
+
+  public publishRemoteDeployment(deployment: RemoteDeploymentView): Effect.Effect<void> {
+    return this.publish(
+      new Event(CONTROLLER_EVENTS.REMOTE_DEPLOYMENT_UPDATED, { deployment }),
+    );
   }
 
   public shutdown(): Effect.Effect<void> {
