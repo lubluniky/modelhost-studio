@@ -7,7 +7,6 @@ import type {
   RemoteDeploymentCreateRequest,
   RemoteDeploymentView,
   RemoteOfferResponse,
-  RemoteProviderStatus,
 } from "@local-studio/contracts/remote-deployments";
 import type { Config } from "../../config/env";
 import type { ProviderConfig } from "../../config/persisted-config";
@@ -16,15 +15,8 @@ import type { DownloadStore } from "../engines/downloads/download-store";
 import type { RecipeStore } from "../models/recipes/recipe-store";
 import type { EventManager } from "../system/event-manager";
 import { makeRemoteBootstrap } from "./bootstrap";
-import type { RemoteDeploymentCredentials } from "./credentials";
-import { providerConfigured } from "./credentials";
-import type {
-  RemoteDeploymentFailure,
-  RemoteComputeProvider,
-  RemoteDeploymentRecord,
-} from "./contracts";
-import { makeRunPodProvider } from "./providers/runpod";
-import { makeVastProvider } from "./providers/vast";
+import type { RemoteDeploymentCredentialManager } from "./credential-manager";
+import type { RemoteDeploymentFailure, RemoteDeploymentRecord } from "./contracts";
 import { probeRemoteVllm, type RemoteReadinessProbe } from "./readiness";
 import { resolveRemoteComputeRequirements } from "./requirements";
 import {
@@ -39,42 +31,18 @@ const PROVIDER_IDS: readonly RemoteComputeProviderId[] = ["vast", "runpod"];
 
 export interface RemoteDeploymentServiceDependencies {
   readonly config: Config;
-  readonly credentials: RemoteDeploymentCredentials;
+  readonly credentialManager: RemoteDeploymentCredentialManager;
   readonly store: RemoteDeploymentStore;
   readonly recipeStore: RecipeStore;
   readonly downloadStore: DownloadStore;
   readonly eventManager: EventManager;
-  readonly providers?: ReadonlyMap<RemoteComputeProviderId, RemoteComputeProvider>;
   readonly readinessProbe?: RemoteReadinessProbe;
 }
 
 export class RemoteDeploymentService {
-  private readonly providers: ReadonlyMap<RemoteComputeProviderId, RemoteComputeProvider>;
   private readonly operationLocks = new Map<string, Semaphore.Semaphore>();
 
-  public constructor(private readonly dependencies: RemoteDeploymentServiceDependencies) {
-    if (dependencies.providers) {
-      this.providers = dependencies.providers;
-      return;
-    }
-    const providers = new Map<RemoteComputeProviderId, RemoteComputeProvider>();
-    if (dependencies.credentials.vastApiKey) {
-      providers.set("vast", makeVastProvider(dependencies.credentials.vastApiKey));
-    }
-    if (dependencies.credentials.runpodApiKey) {
-      providers.set("runpod", makeRunPodProvider(dependencies.credentials.runpodApiKey));
-    }
-    this.providers = providers;
-  }
-
-  public providerStatuses(): RemoteProviderStatus[] {
-    return PROVIDER_IDS.map((id) => ({
-      id,
-      configured: providerConfigured(this.dependencies.credentials, id),
-      supported_backends: ["vllm"],
-      supports_single_gpu: true,
-    }));
-  }
+  public constructor(private readonly dependencies: RemoteDeploymentServiceDependencies) {}
 
   private withDeploymentLock<A, E, R>(
     id: string,
@@ -84,17 +52,6 @@ export class RemoteDeploymentService {
     const lock = existing ?? Semaphore.makeUnsafe(1);
     if (!existing) this.operationLocks.set(id, lock);
     return lock.withPermit(Effect.suspend(operation));
-  }
-
-  private provider(
-    id: RemoteComputeProviderId,
-  ): Effect.Effect<RemoteComputeProvider, RemoteDeploymentFailure> {
-    const provider = this.providers.get(id);
-    return provider
-      ? Effect.succeed(provider)
-      : Effect.fail(
-          failure("remote-provider.credentials", `${id} credential is not configured`, false, id),
-        );
   }
 
   private getRecord(id: string): Effect.Effect<RemoteDeploymentRecord, RemoteDeploymentFailure> {
@@ -131,7 +88,7 @@ export class RemoteDeploymentService {
           ? resolveRemoteComputeRequirements({
               recipe,
               downloadStore: this.dependencies.downloadStore,
-              huggingFaceToken: this.dependencies.credentials.huggingFaceToken,
+              huggingFaceToken: this.dependencies.credentialManager.huggingFaceToken(),
             })
           : Effect.fail(failure("remote-requirements.recipe", "Recipe was not found")),
       ),
@@ -147,7 +104,7 @@ export class RemoteDeploymentService {
       const requirements = yield* service.resolveRequirements(recipeId);
       const ids = selectedProviders?.length ? selectedProviders : PROVIDER_IDS;
       const results = yield* Effect.forEach(ids, (id) =>
-        service.provider(id).pipe(
+        service.dependencies.credentialManager.provider(id).pipe(
           Effect.flatMap((provider) => provider.listOffers(requirements)),
           Effect.match({
             onFailure: (error) => ({
@@ -230,7 +187,7 @@ export class RemoteDeploymentService {
         ),
       );
       const requirements = yield* service.resolveRequirements(recipe.id);
-      const provider = yield* service.provider(request.provider);
+      const provider = yield* service.dependencies.credentialManager.provider(request.provider);
       const offers = yield* provider.listOffers(requirements);
       const offer = offers.find((candidate) => candidate.id === request.offer_id);
       if (!offer?.compatible) {
@@ -249,7 +206,7 @@ export class RemoteDeploymentService {
             recipe,
             requirements,
             config: service.dependencies.config,
-            huggingFaceToken: service.dependencies.credentials.huggingFaceToken,
+            huggingFaceToken: service.dependencies.credentialManager.huggingFaceToken(),
           }),
         catch: () =>
           failure("remote-deployment.bootstrap", "Could not build the remote vLLM launch plan"),
@@ -364,7 +321,7 @@ export class RemoteDeploymentService {
     const service = this;
     return Effect.gen(function* () {
       yield* service.disableRoute(record).pipe(Effect.catch(() => Effect.void));
-      const provider = yield* service.provider(record.provider);
+      const provider = yield* service.dependencies.credentialManager.provider(record.provider);
       const destroyed = record.providerInstanceId
         ? yield* provider.destroyInstance(record.providerInstanceId).pipe(
             Effect.as(true),
@@ -416,7 +373,7 @@ export class RemoteDeploymentService {
       }
       if (!record.providerInstanceId)
         return remoteDeploymentView(yield* service.markMissing(record));
-      const provider = yield* service.provider(record.provider);
+      const provider = yield* service.dependencies.credentialManager.provider(record.provider);
       const instance = yield* provider.getInstance(record.providerInstanceId);
       if (!instance) return remoteDeploymentView(yield* service.markMissing(record));
       if (instance.state === "exited" || instance.state === "stopped") {
@@ -559,7 +516,7 @@ export class RemoteDeploymentService {
         message: "Destroying remote instance",
         error: null,
       });
-      const provider = yield* service.provider(record.provider);
+      const provider = yield* service.dependencies.credentialManager.provider(record.provider);
       const destroyed = destroying.providerInstanceId
         ? yield* provider.destroyInstance(destroying.providerInstanceId).pipe(
             Effect.as(true),

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import {
+  RemoteDeploymentCredentialUpdateSchema,
   RemoteDeploymentCreateRequestSchema,
   RemoteOfferRequestSchema,
 } from "@local-studio/contracts/remote-deployments";
@@ -18,6 +19,7 @@ const routeFailure = (error: RemoteDeploymentFailure): HttpStatus => {
   }
   if (
     error.operation.startsWith("remote-requirements") ||
+    error.operation === "remote-credentials.update" ||
     error.operation === "remote-deployment.recipe" ||
     error.operation === "remote-deployment.offer" ||
     error.operation === "remote-deployment.bootstrap"
@@ -33,7 +35,31 @@ export const registerRemoteDeploymentRoutes = defineRoutes((app, context) =>
       "/remote-deployments/providers",
       documentRoute,
       effectHandler((ctx) =>
-        Effect.succeed(ctx.json({ providers: context.remoteDeployments.providerStatuses() })),
+        Effect.succeed(
+          ctx.json({ providers: context.remoteDeploymentCredentials.providerStatuses() }),
+        ),
+      ),
+    ),
+    app.get(
+      "/remote-deployments/credentials",
+      documentRoute,
+      effectHandler((ctx) =>
+        Effect.succeed(
+          ctx.json({ credentials: context.remoteDeploymentCredentials.credentialStatuses() }),
+        ),
+      ),
+    ),
+    app.put(
+      "/remote-deployments/credentials",
+      documentRoute,
+      effectHandler((ctx) =>
+        Effect.gen(function* () {
+          const body = yield* decodeJsonBody(ctx, RemoteDeploymentCredentialUpdateSchema);
+          const credentials = yield* context.remoteDeploymentCredentials
+            .update(body)
+            .pipe(Effect.mapError(routeFailure));
+          return ctx.json({ credentials });
+        }),
       ),
     ),
     app.post(

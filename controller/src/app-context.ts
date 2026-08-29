@@ -17,6 +17,7 @@ import { shutdownEngineJobs } from "./modules/engines/runtimes/engine-jobs";
 import { shutdownRuntimeInfo } from "./modules/engines/runtimes/runtime-info";
 import { RecipeStore } from "./modules/models/recipes/recipe-store";
 import { readRemoteDeploymentCredentials } from "./modules/remote-deployments/credentials";
+import { RemoteDeploymentCredentialManager } from "./modules/remote-deployments/credential-manager";
 import { RemoteDeploymentService } from "./modules/remote-deployments/service";
 import { RemoteDeploymentStore } from "./modules/remote-deployments/store";
 import { EventManager } from "./modules/system/event-manager";
@@ -34,6 +35,7 @@ export interface AppContext {
   downloadManager: DownloadManager;
   compute: Compute;
   bridge: ComputeBridge;
+  remoteDeploymentCredentials: RemoteDeploymentCredentialManager;
   remoteDeployments: RemoteDeploymentService;
   stores: {
     recipeStore: RecipeStore;
@@ -184,9 +186,13 @@ export const makeAppContext = Effect.gen(function* () {
     "download-manager.open",
     DownloadManager.make(config, downloadStore, eventManager, logger),
   );
+  const remoteDeploymentCredentials = new RemoteDeploymentCredentialManager({
+    environment: readRemoteDeploymentCredentials(),
+    store: controllerSettingsStore,
+  });
   const remoteDeployments = new RemoteDeploymentService({
     config,
-    credentials: readRemoteDeploymentCredentials(),
+    credentialManager: remoteDeploymentCredentials,
     store: remoteDeploymentStore,
     recipeStore,
     downloadStore,
@@ -210,6 +216,7 @@ export const makeAppContext = Effect.gen(function* () {
     downloadManager,
     compute,
     bridge,
+    remoteDeploymentCredentials,
     remoteDeployments,
     stores: {
       recipeStore,

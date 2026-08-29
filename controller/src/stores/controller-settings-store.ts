@@ -8,12 +8,22 @@ import {
 } from "./sqlite";
 
 const UI_PREFERENCES_KEY = "ui_preferences";
+const REMOTE_DEPLOYMENT_CREDENTIALS_KEY = "remote_deployment_credentials";
 
 type SettingRow = {
   value: string;
 };
 
 const UiPreferencesSchema = Schema.Record(Schema.String, Schema.String);
+const RemoteDeploymentCredentialsSchema = Schema.Struct({
+  vastApiKey: Schema.optional(Schema.String),
+  runpodApiKey: Schema.optional(Schema.String),
+  huggingFaceToken: Schema.optional(Schema.String),
+});
+
+export type StoredRemoteDeploymentCredentials = Schema.Schema.Type<
+  typeof RemoteDeploymentCredentialsSchema
+>;
 
 export class ControllerSettingsStore {
   private readonly db: Database;
@@ -75,6 +85,45 @@ export class ControllerSettingsStore {
     return repositoryEffect("controller-settings.save-ui-preferences", () =>
       this.saveUiPreferences(preferences),
     );
+  }
+
+  public getRemoteDeploymentCredentials(): StoredRemoteDeploymentCredentials {
+    const row = this.db
+      .query("SELECT value FROM controller_settings WHERE key = ?")
+      .get(REMOTE_DEPLOYMENT_CREDENTIALS_KEY) as SettingRow | null;
+    if (!row) return {};
+    try {
+      return Schema.decodeUnknownSync(RemoteDeploymentCredentialsSchema)(
+        JSON.parse(row.value) as unknown,
+      );
+    } catch {
+      return {};
+    }
+  }
+
+  public getRemoteDeploymentCredentialsEffect(): Effect.Effect<
+    StoredRemoteDeploymentCredentials,
+    RepositoryError
+  > {
+    return repositoryEffect("controller-settings.get-remote-deployment-credentials", () =>
+      this.getRemoteDeploymentCredentials(),
+    );
+  }
+
+  public saveRemoteDeploymentCredentialsEffect(
+    credentials: StoredRemoteDeploymentCredentials,
+  ): Effect.Effect<StoredRemoteDeploymentCredentials, RepositoryError> {
+    return repositoryEffect("controller-settings.save-remote-deployment-credentials", () => {
+      const clean = Schema.decodeUnknownSync(RemoteDeploymentCredentialsSchema)(credentials);
+      this.db
+        .query(
+          `INSERT INTO controller_settings (key, value, updated_at)
+           VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+        )
+        .run(REMOTE_DEPLOYMENT_CREDENTIALS_KEY, JSON.stringify(clean));
+      return clean;
+    });
   }
 
   public close(): Effect.Effect<void, RepositoryError> {
