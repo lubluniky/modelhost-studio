@@ -15,6 +15,9 @@ import { makeCompute, type Compute } from "./modules/compute/service";
 import { shutdownEngineJobs } from "./modules/engines/runtimes/engine-jobs";
 import { shutdownRuntimeInfo } from "./modules/engines/runtimes/runtime-info";
 import { RecipeStore } from "./modules/models/recipes/recipe-store";
+import { readRemoteDeploymentCredentials } from "./modules/remote-deployments/credentials";
+import { RemoteDeploymentService } from "./modules/remote-deployments/service";
+import { RemoteDeploymentStore } from "./modules/remote-deployments/store";
 import { EventManager } from "./modules/system/event-manager";
 import { PeakMetricsStore, LifetimeMetricsStore } from "./modules/system/metrics-store";
 import { ControllerRequestStore } from "./stores/controller-request-store";
@@ -29,6 +32,7 @@ export interface AppContext {
   launchFailureBudget: LaunchFailureBudget;
   downloadManager: DownloadManager;
   compute: Compute;
+  remoteDeployments: RemoteDeploymentService;
   stores: {
     recipeStore: RecipeStore;
     downloadStore: DownloadStore;
@@ -38,6 +42,7 @@ export interface AppContext {
     controllerSettingsStore: ControllerSettingsStore;
     controllerRequestStore: ControllerRequestStore;
     rigStore: RigStore;
+    remoteDeploymentStore: RemoteDeploymentStore;
   };
 }
 
@@ -158,6 +163,10 @@ export const makeAppContext = Effect.gen(function* () {
     initializeSync("rig-store.open", () => new RigStore(dbPath)),
     (resource) => releaseSafely("rig-store.close", logger, resource.close()),
   );
+  const remoteDeploymentStore = yield* Effect.acquireRelease(
+    initializeSync("remote-deployment-store.open", () => new RemoteDeploymentStore(dbPath)),
+    (resource) => releaseSafely("remote-deployment-store.close", logger, resource.close()),
+  );
   yield* initialize(
     "lifetime-metrics-store.initialize",
     lifetimeMetricsStore.ensureFirstStartedEffect(),
@@ -171,6 +180,14 @@ export const makeAppContext = Effect.gen(function* () {
     "download-manager.open",
     DownloadManager.make(config, downloadStore, eventManager, logger),
   );
+  const remoteDeployments = new RemoteDeploymentService({
+    config,
+    credentials: readRemoteDeploymentCredentials(),
+    store: remoteDeploymentStore,
+    recipeStore,
+    downloadStore,
+    eventManager,
+  });
   yield* Effect.acquireRelease(Effect.void, () =>
     releaseSafely("runtime-info.shutdown", logger, shutdownRuntimeInfo()),
   );
@@ -188,6 +205,7 @@ export const makeAppContext = Effect.gen(function* () {
     launchFailureBudget,
     downloadManager,
     compute,
+    remoteDeployments,
     stores: {
       recipeStore,
       downloadStore,
@@ -197,6 +215,7 @@ export const makeAppContext = Effect.gen(function* () {
       controllerSettingsStore,
       controllerRequestStore,
       rigStore,
+      remoteDeploymentStore,
     },
   } satisfies AppContext;
 });

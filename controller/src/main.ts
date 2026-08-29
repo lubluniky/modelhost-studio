@@ -6,6 +6,7 @@ import { parseBooleanFlag } from "./core/validation";
 import { createApp } from "./http/app";
 import { startMetricsCollector } from "./modules/system/metrics-collector";
 import { detectGpuMonitoringTool } from "./modules/system/platform/gpu";
+import { startRemoteDeploymentSupervisor } from "./modules/remote-deployments/supervisor";
 
 class ControllerStartupError extends Schema.TaggedErrorClass<ControllerStartupError>()(
   "ControllerStartupError",
@@ -74,6 +75,12 @@ const program = Effect.scoped(
         ),
       );
     }
+    yield* context.remoteDeployments.reconcileAll();
+    yield* Effect.forkScoped(
+      startRemoteDeploymentSupervisor(context.remoteDeployments, (error) =>
+        context.logger.error("Remote deployment supervisor error", { error: String(error) }),
+      ),
+    );
     const server = yield* Effect.acquireRelease(serve(context, runtime), (resource) =>
       Effect.tryPromise({
         try: () => resource.stop(),

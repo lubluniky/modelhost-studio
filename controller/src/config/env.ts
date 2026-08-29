@@ -33,11 +33,15 @@ export interface Config {
 }
 
 export const loadDotEnvironment = (): string | undefined => {
-  const candidates = [
-    resolve(process.cwd(), ".env"),
-    resolve(process.cwd(), "..", ".env"),
-    resolve(process.cwd(), "..", "..", ".env"),
+  const roots = [
+    process.cwd(),
+    resolve(process.cwd(), ".."),
+    resolve(process.cwd(), "..", ".."),
   ];
+  const candidates = roots.flatMap((root) => [
+    resolve(root, ".env.local"),
+    resolve(root, ".env"),
+  ]);
 
   const envPath = candidates.find((pathValue) => existsSync(pathValue));
   if (envPath) {
