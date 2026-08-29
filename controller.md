@@ -183,6 +183,7 @@ Root `npm run check` (= `node scripts/project.mjs check`) runs the controller's 
 | Model storage mgmt | `modules/studio/routes.ts` | `/studio/storage` (per-model sizes), `/studio/models/delete`, `/studio/models/move` (with cross-device copy fallback). |
 | Starter presets | `modules/studio/configs.ts` + presets route | Recommended recipe presets filtered by VRAM/platform. |
 | Provider management | `modules/studio/provider-routes.ts` | CRUD remote OpenAI-compatible providers (persisted in config JSON), list provider models. |
+| Remote GPU provisioning | `modules/remote-deployments/*` | Resolve recipe VRAM requirements, browse Vast.ai and RunPod offers, provision authenticated vLLM, reconcile provider state, register healthy endpoints through existing provider routing, and destroy rented instances. |
 | Rig management | `modules/studio/rig-routes.ts`, `rig-store.ts`, `rig-detection.ts` | Multi-node "rig" records; auto-detect local node/accelerator (DGX Spark, RTX…); CRUD rigs/nodes. Marked for future multi-node compute. |
 | Bundled model index | `modules/studio/model-index.ts` | Serve validated model-index JSON (override file or bundled source). |
 | System status/compat/config | `modules/system/routes.ts` | `/status`, `/gpus`, `/compat` (compatibility report), `/config` (services + env + runtime). |
@@ -236,6 +237,18 @@ Providers: `GET/POST /studio/providers`, `PUT/DELETE /studio/providers/:id`, `GE
 Rigs: `GET/POST /studio/rigs`, `PUT/DELETE /studio/rigs/:rigId`, `POST /studio/rigs/:rigId/nodes`, `PUT/DELETE /studio/rigs/:rigId/nodes/:nodeId`
 Model index: `GET /studio/model-index`
 
+### 5.5a Remote deployments (`modules/remote-deployments/routes.ts`)
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/remote-deployments/providers` | Return configured flags and MVP capabilities without returning credentials. |
+| POST | `/remote-deployments/offers` | Resolve recipe requirements and return normalized Vast.ai and RunPod offers. |
+| GET | `/remote-deployments` | List persisted deployments, optionally filtered by `recipe_id`. |
+| GET | `/remote-deployments/:deploymentId` | Return one deployment lifecycle view. |
+| POST | `/remote-deployments` | Revalidate an offer, persist intent, create the rented instance, and begin supervised readiness. |
+| DELETE | `/remote-deployments/:deploymentId` | Disable routing, destroy the provider instance, and retain the audit record. |
+
+Remote provisioning is configured in ignored `.env.local` with `LOCAL_STUDIO_VAST_API_KEY` and/or `LOCAL_STUDIO_RUNPOD_API_KEY`. `LOCAL_STUDIO_HF_TOKEN` is optional for private or gated Hugging Face models. Provider keys and generated vLLM keys remain controller-side. A healthy deployment is routed as `remote-{provider}-{deploymentId}/{model}` through the existing provider path.
+
 ### 5.6 System (`modules/system/routes.ts` + sub-registrars)
 `GET /status`, `GET /gpus`, `GET /compat`, `POST /vram-calculator`, `GET /config`
 Metrics: `GET /v1/metrics/vllm`, `GET /peak-metrics`, `POST /benchmark`
@@ -259,6 +272,7 @@ Usage: `GET /usage`
 | `ControllerSettingsStore` | `stores/controller-settings-store.ts` | `controller_settings` | UI preferences. |
 | `ControllerRequestStore` | `stores/controller-request-store.ts` | `controller_requests`, `controller_function_calls` | Request + internal-function telemetry. |
 | `RigStore` | `stores/rig-store.ts` | `rigs` | Persisted rig/node records. |
+| `RemoteDeploymentStore` | `modules/remote-deployments/store.ts` | `remote_deployments` | Provider instance identity, selected offer, lifecycle, endpoint, price, health, and reconciliation state. |
 | `openSqliteDatabase` | `stores/sqlite.ts` | (shared) | DB open with busy_timeout and chmod 600. (The old drop-obsolete-tables sweep was removed; legacy tables from earlier eras persist in existing databases untouched.) |
 
 Additionally, compute instance records are persisted as **one JSON file per instance** in the data dir (write-then-rename), and `config/persisted-config.ts` handles JSON config (models_dir, providers, UI prefs).
