@@ -2,9 +2,9 @@
 
 ## Architecture summary
 
-Remote GPU deployments should not become local `InstanceRecord` variants. A local instance record is also the local GPU lease, its state depends on a local launcher handle, and its health probe always targets a loopback port. Reusing that record for a rented machine would break all three invariants.
+Remote GPU deployments are not local `InstanceRecord` variants. A local instance record is also the local GPU lease, its state depends on a local launcher handle, and its health probe always targets a loopback port. Reusing that record for a rented machine would break all three invariants.
 
-The remote deployment service will sit beside `modules/compute`. It will reuse recipe normalization and the pure vLLM launch plan, but it will own cloud offers, provider API calls, cloud lifecycle state, reconciliation, and teardown. Once a remote vLLM server is healthy, the service will register it as an ordinary OpenAI-compatible provider. Existing `providerId/model` routing, SSE streaming, model discovery, and usage accounting then work without a second inference proxy.
+The remote deployment service sits beside `modules/compute`. It reuses recipe normalization and the pure vLLM launch plan, but owns cloud offers, provider API calls, cloud lifecycle state, reconciliation, and teardown. Once a remote vLLM server is healthy, the service registers it as an ordinary OpenAI-compatible provider. Existing `providerId/model` routing, SSE streaming, model discovery, and usage accounting then work without a second inference proxy.
 
 ```mermaid
 flowchart LR
@@ -26,9 +26,9 @@ flowchart LR
 
 The fork has no `origin/dev` after a fresh fetch on 2026-08-29. The feature branch therefore starts at the fork's only remote head, `origin/main` at `6ff4ef9`.
 
-## Proposed contracts
+## Contracts
 
-The shared wire contract belongs in `controller/contracts/remote-deployments.ts`.
+The shared wire contract is in `controller/contracts/remote-deployments.ts`.
 
 ```ts
 type RemoteComputeProviderId = "vast" | "runpod";
@@ -38,6 +38,7 @@ interface RemoteComputeRequirements {
   model_id: string;
   backend: "vllm";
   min_vram_gb: number;
+  weight_size_gb: number;
   gpu_count: 1;
   context_length: number;
   quantization: string | null;
@@ -70,6 +71,7 @@ interface RemoteDeploymentView {
   stage: RemoteDeploymentStage;
   message: string;
   offer: RemoteComputeOffer;
+  requirements: RemoteComputeRequirements;
   remote_base_url: string | null;
   route_model_id: string | null;
   created_at: string;
@@ -80,7 +82,7 @@ interface RemoteDeploymentView {
 }
 ```
 
-The controller-only provider interface belongs in `controller/src/modules/remote-deployments/contracts.ts`.
+The controller-only provider interface is in `controller/src/modules/remote-deployments/contracts.ts`.
 
 ```ts
 interface RemoteComputeProvider {
@@ -97,13 +99,11 @@ interface RemoteComputeProvider {
   readonly getConnectionInfo: (
     instance: RemoteProviderInstance,
   ) => Effect.Effect<RemoteConnectionInfo | null, RemoteDeploymentFailure>;
-  readonly destroyInstance: (
-    id: string,
-  ) => Effect.Effect<void, RemoteDeploymentFailure>;
+  readonly destroyInstance: (id: string) => Effect.Effect<void, RemoteDeploymentFailure>;
 }
 ```
 
-Provider-specific response bodies will be decoded with Effect Schema before normalization. No raw provider payload crosses the controller boundary.
+Provider-specific response bodies are decoded with Effect Schema before normalization. No raw provider payload crosses the controller boundary.
 
 ## Exact file map
 
@@ -125,7 +125,7 @@ New files:
 - `frontend/src/features/recipes/remote-deployment/remote-deployment-drawer.tsx`: offer and lifecycle UI.
 - `frontend/src/features/recipes/remote-deployment/remote-deployment-model.ts`: drawer state and controller event reconciliation.
 
-Existing files expected to change:
+Existing files changed:
 
 - `controller/src/config/env.ts`: read controller-only credential presence without serializing credential values.
 - `controller/src/config/persisted-config.ts`: mark generated provider routes as deployment-managed.
@@ -138,8 +138,6 @@ Existing files expected to change:
 - `frontend/src/lib/api/create-api-client.ts` and `frontend/src/lib/types.ts`: expose the new shared contract and API.
 - `frontend/src/features/recipes/recipes-content/recipe-row.tsx`, `recipes-table.tsx`, `types.ts`, `recipes-content-model.ts`, and `recipes-content-view.tsx`: add the "Deploy remote" entry and mount the drawer.
 - `controller.md`: document the final routes and lifecycle after implementation.
-
-The file list may shrink if implementation shows that a proposed helper has only one caller. It should not grow into unrelated modules.
 
 ## MVP scope
 
@@ -164,21 +162,21 @@ Excluded from this MVP:
 
 ## Provider integration
 
-Vast uses the official REST API. Offers come from `POST https://console.vast.ai/api/v0/bundles`, creation accepts an offer with `PUT /api/v0/asks/{offerId}/`, instance state comes from `GET /api/v0/instances/{id}/`, and teardown uses the destroy endpoint. The request starts `vllm/vllm-openai` directly and opens only the inference port. Vast maps that internal port to a random external TCP port, which the adapter resolves from instance data.
+Vast uses the official REST API. Offers come from `POST https://console.vast.ai/api/v0/bundles/`, creation accepts an offer with `PUT /api/v0/asks/{offerId}/`, instance state comes from `GET /api/v0/instances/{id}/`, and teardown uses `DELETE /api/v0/instances/{id}/`. The request starts the selected vLLM image directly and opens only the inference port. Vast maps that internal port to a random external TCP port, which the adapter resolves from instance data.
 
 RunPod uses the official GraphQL GPU catalog for memory, price, stock, and compatible GPU counts. Pod lifecycle uses `https://rest.runpod.io/v1/pods`. The vLLM port is exposed as an HTTP service and resolves to `https://{podId}-8000.proxy.runpod.net`.
 
 References:
 
 - [Vast offer search](https://docs.vast.ai/api-reference/search/search-offers)
-- [Vast instance creation](https://docs.vast.ai/api-reference/instances/create-instance)
+- [Vast instance creation](https://docs.vast.ai/api-reference/creating-instances-with-api)
 - [Vast networking and port mapping](https://docs.vast.ai/guides/instances/connect/networking)
 - [RunPod GPU catalog and availability](https://docs.runpod.io/sdks/graphql/manage-pods)
 - [RunPod Pod creation](https://docs.runpod.io/api-reference/pods/POST/pods)
 
 ## Persistence and migration
 
-`RemoteDeploymentStore` will create a `remote_deployments` table in the existing controller SQLite database. Each row stores a schema-validated JSON record plus indexed lifecycle timestamps. Creating the table is additive and idempotent, so no generated migration file is involved.
+`RemoteDeploymentStore` creates a `remote_deployments` table in the existing controller SQLite database. Each row stores a schema-validated JSON record plus indexed lifecycle timestamps. Creating the table is additive and idempotent, so no generated migration file is involved.
 
 The persisted record contains provider, provider instance id, normalized selected offer, price at creation, region, recipe id, Hugging Face model id, backend, status, stage, remote base URL, provider route id, creation and update timestamps, last health time and result, and a redacted error summary.
 
@@ -217,25 +215,53 @@ On controller startup, reconciliation runs before the periodic supervisor:
 
 Provider response bodies, authorization headers, generated inference keys, Hugging Face tokens, and environment maps must never be logged or returned. User-visible errors contain status and operation names only.
 
-## API plan
+## API
 
 - `GET /remote-deployments/providers`: provider configured flags and supported MVP capabilities.
 - `POST /remote-deployments/offers`: resolve one recipe's requirements and return normalized compatible and incompatible offers.
 - `GET /remote-deployments`: list deployment views, optionally filtered by recipe id.
 - `GET /remote-deployments/:deploymentId`: return one deployment view.
-- `POST /remote-deployments`: revalidate the selected offer and start provisioning in the background.
+- `POST /remote-deployments`: revalidate the selected offer, create the provider instance, persist its id, and return the provisioning view with HTTP 202. Supervised readiness continues after the response.
 - `DELETE /remote-deployments/:deploymentId`: disable routing, destroy the provider instance, and persist the terminal result.
 
 All request bodies use Effect Schema and the existing bounded-body helpers. The controller emits `remote_deployment_updated` over its current SSE channel after every persisted transition.
 
-## Implementation phases
+## Validation
 
-1. Add shared contracts, controller-only provider interface, requirements resolver, SQLite store, and provider config mutation owner.
-2. Implement and validate Vast response normalization and lifecycle calls.
-3. Implement and validate RunPod catalog normalization and Pod lifecycle calls.
-4. Derive a reproducible authenticated vLLM container spec from a recipe and add readiness probing.
-5. Add orchestration, provider registration, startup reconciliation, periodic supervision, and safe teardown.
-6. Add the typed frontend client and the Models drawer for offers and lifecycle.
-7. Run contract-level checks for offer filtering, both provider normalizers, provisioning failure, bootstrap failure, readiness timeout, destroy, restart reconciliation, external disappearance, and browser secret omission. Then run `npm run check`.
+The repository policy forbids adding automated test files. A temporary probe under `.scratch/` covers these nine contract scenarios and is deleted after it runs:
 
-Repository policy explicitly forbids adding automated test files. The nine requested cases will therefore use existing checks plus temporary contract probes under `.scratch/`; no test code will be committed. Live provider runs remain a separate acceptance step because they incur cost and require controller-side credentials.
+1. compatible and incompatible offer filtering;
+2. Vast and RunPod response normalization;
+3. failed provisioning cleanup;
+4. unsupported bootstrap rejection before provider mutation;
+5. readiness timeout and teardown;
+6. explicit destroy and route removal;
+7. restart reconciliation and route restoration;
+8. external instance disappearance;
+9. browser payload omission of provider keys, inference keys, and recipe environment values.
+
+The visible UI path is checked against an isolated local controller: Models → Your servers → Server actions → Deploy remote. The no-credential state renders both providers, keeps external actions disabled, and produces no browser console errors.
+
+## Local end-to-end run
+
+1. Copy `.env.example` to ignored `.env.local`.
+2. Add `LOCAL_STUDIO_VAST_API_KEY` and/or `LOCAL_STUDIO_RUNPOD_API_KEY`. Add `LOCAL_STUDIO_HF_TOKEN` only for a private or gated model. Never put these values in frontend settings.
+3. Start the normal development workflow with `npm run dev`.
+4. Open Models → Your servers, open a vLLM recipe's actions, and choose Deploy remote.
+5. Select configured providers, refresh offers, compare compatible and incompatible rows, choose one offer, and click Deploy. The quoted hourly price applies until the instance is destroyed.
+6. Wait for `ready`, then use the displayed `remote-{provider}-{deploymentId}/{model}` id through the existing Local Studio chat or OpenAI-compatible controller API.
+7. Click Destroy and verify the deployment reaches `destroyed`. If teardown fails, retry while the route remains disabled.
+
+The controller-side contract can be inspected without spending money through `GET /remote-deployments/providers` and the persisted deployment list. Offer lookup may call provider catalog APIs, but instance creation happens only after the explicit Deploy action.
+
+## Known limitations
+
+- Live UI-to-inference-to-destroy acceptance has not been run against either paid provider. It requires locally configured credentials and explicit approval to incur cost.
+- RunPod uses its provider HTTPS proxy. Vast exposes the mapped vLLM port directly as `http://{publicIp}:{mappedPort}`. It is protected by a generated high-entropy bearer key, but this Vast MVP path does not provide provider-native TLS.
+- VRAM compatibility is an estimate based on known weight bytes plus 25 percent headroom. Long contexts, model architecture, quantization behavior, and KV cache demand can still make an apparently compatible GPU fail readiness.
+- Price and availability are snapshots. There is no budget cap, automatic maximum price, reservation, or spend approval workflow.
+- The default engine image follows the existing vLLM image selection and may use a moving tag. Pin a recipe-selected vLLM image tag when immutable image reproduction is required.
+- Recipe environment variables are sent to the selected provider because they are part of the launch contract. The UI reports only their count and never their names or values.
+- If the controller process dies after a provider accepts creation but before the returned instance id is persisted, the current provider-neutral interface cannot rediscover that instance by deployment label. Check the provider console after such a crash.
+- RunPod catalog offers do not include final machine region, CPU, or system RAM, so these fields remain unknown until the API offers a trustworthy pre-provisioning boundary.
+- The MVP supports vLLM, NVIDIA, one GPU, Hugging Face model ids, and on-demand Pods/instances only. It does not cover SGLang, AMD, multi-GPU, serverless, SSH bootstrap, network volumes, or custom images without the vLLM entrypoint.
