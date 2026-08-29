@@ -51,6 +51,20 @@ export type {
 export type { ControllerUsageStats, UsageStats } from "@local-studio/contracts/usage";
 
 export type {
+  RemoteComputeOffer,
+  RemoteComputeProviderId,
+  RemoteComputeRequirements,
+  RemoteDeploymentCreateRequest,
+  RemoteDeploymentStage,
+  RemoteDeploymentStatus,
+  RemoteDeploymentView,
+  RemoteHealthStatus,
+  RemoteOfferResponse,
+  RemoteProviderOfferError,
+  RemoteProviderStatus,
+} from "@local-studio/contracts/remote-deployments";
+
+export type {
   Rig,
   RigAccelerator,
   RigHardwareType,
