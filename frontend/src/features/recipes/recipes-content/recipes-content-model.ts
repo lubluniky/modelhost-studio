@@ -35,6 +35,7 @@ export function useRecipesContentModel() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [runningRecipeId, setRunningRecipeId] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [remoteRecipe, setRemoteRecipe] = useState<RecipeWithStatus | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalRecipe, setModalRecipe] = useState<RecipeEditor | null>(null);
@@ -214,6 +215,11 @@ export function useRecipesContentModel() {
     setRecipeMenuOpen(null);
   }, []);
 
+  const handleDeployRemote = useCallback((recipe: RecipeWithStatus) => {
+    setRecipeMenuOpen(null);
+    setRemoteRecipe(recipe);
+  }, []);
+
   const closeRecipeModal = useCallback(() => {
     setModalOpen(false);
     setModalRecipe(null);
@@ -240,6 +246,7 @@ export function useRecipesContentModel() {
       onStop: handleEvictModel,
       onEdit: handleEditRecipe,
       onRequestDelete: handleRequestDelete,
+      onDeployRemote: handleDeployRemote,
     }),
     [
       derived.sortedRecipes,
@@ -253,6 +260,7 @@ export function useRecipesContentModel() {
       handleEvictModel,
       handleEditRecipe,
       handleRequestDelete,
+      handleDeployRemote,
     ],
   );
 
@@ -271,6 +279,8 @@ export function useRecipesContentModel() {
     setDeleteConfirm,
     runningRecipeId,
     launching,
+    remoteRecipe,
+    setRemoteRecipe,
     modalOpen,
     modalRecipe,
     setModalRecipe,
@@ -295,6 +305,7 @@ export function useRecipesContentModel() {
       handleEvictModel,
       handleToggleRecipeMenu,
       handleRequestDelete,
+      handleDeployRemote,
       closeRecipeModal,
     },
   };

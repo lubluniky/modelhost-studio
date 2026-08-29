@@ -13,6 +13,7 @@ import { RecipeModal } from "../recipe-modal/recipe-modal";
 import { ExploreTab } from "./explore-tab";
 import { DownloadsTab } from "./downloads-tab";
 import { PicksTab } from "./picks-tab";
+import { RemoteDeploymentDrawer } from "../remote-deployment/remote-deployment-drawer";
 
 type Props = {
   embedded?: boolean;
@@ -44,6 +45,8 @@ type Props = {
   onConfirmDelete: () => void;
   onEvictModel: () => void;
   table: RecipesTableProps;
+  remoteRecipe: RecipeWithStatus | null;
+  onCloseRemoteDeployment: () => void;
 };
 
 // Tab ids are storage/URL keys and stay put; the labels say what each tab
@@ -106,6 +109,8 @@ export function RecipesContentView(props: Props) {
     onConfirmDelete,
     onEvictModel,
     table,
+    remoteRecipe,
+    onCloseRemoteDeployment,
   } = props;
   const heading = TAB_HEADINGS[tab];
   const content = (
@@ -188,6 +193,12 @@ export function RecipesContentView(props: Props) {
             runtimeTargets={runtimeTargets}
             recipes={recipes}
           />
+        </DrawerOverlay>
+      ) : null}
+
+      {remoteRecipe ? (
+        <DrawerOverlay onClose={onCloseRemoteDeployment}>
+          <RemoteDeploymentDrawer recipe={remoteRecipe} onClose={onCloseRemoteDeployment} />
         </DrawerOverlay>
       ) : null}
 
