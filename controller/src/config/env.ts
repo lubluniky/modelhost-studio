@@ -33,10 +33,10 @@ export interface Config {
 }
 
 export const loadDotEnvironment = (): string | undefined => {
+  const roots = [process.cwd(), resolve(process.cwd(), ".."), resolve(process.cwd(), "..", "..")];
   const candidates = [
-    resolve(process.cwd(), ".env"),
-    resolve(process.cwd(), "..", ".env"),
-    resolve(process.cwd(), "..", "..", ".env"),
+    ...roots.map((root) => resolve(root, ".env.local")),
+    ...roots.map((root) => resolve(root, ".env")),
   ];
 
   const envPath = candidates.find((pathValue) => existsSync(pathValue));
@@ -161,7 +161,6 @@ export const createConfig = (): Config => {
       "LOCAL_STUDIO_ALLOWED_HOSTS is required for a keyless wildcard controller bind",
     );
   }
-
 
   const persisted = loadPersistedConfig(config.data_dir);
   if (persisted.models_dir) {

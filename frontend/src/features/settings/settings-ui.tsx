@@ -410,6 +410,7 @@ export function SettingsInput({
   onBlur,
   placeholder,
   type = "text",
+  autoComplete,
   className = "",
   "aria-label": ariaLabel,
 }: {
@@ -419,6 +420,7 @@ export function SettingsInput({
   onBlur?: () => void;
   placeholder?: string;
   type?: "text" | "password";
+  autoComplete?: string;
   className?: string;
   "aria-label"?: string;
 }) {
@@ -426,6 +428,7 @@ export function SettingsInput({
     <Input
       id={id}
       type={type}
+      autoComplete={autoComplete}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       onBlur={onBlur}

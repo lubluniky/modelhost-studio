@@ -127,6 +127,7 @@ export interface LaunchRequest {
   readonly port: number;
   /** Absolute path to the model directory. */
   readonly modelPath: string;
+  readonly containerModelReference?: string;
   readonly servedModelName: string;
   readonly options: ServingOptions;
   /** Verbatim recipe flags, appended last; any base flag they repeat is dropped. */

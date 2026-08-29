@@ -127,10 +127,11 @@ export const mergeArguments = (base: readonly string[], extra: readonly string[]
 /* ── plan assembly ───────────────────────────────────────────────────────── */
 
 export const modelReference = (request: LaunchRequest): string =>
-  request.runtime === "docker" ? CONTAINER_MODEL_DIR : request.modelPath;
+  request.containerModelReference ??
+  (request.runtime === "docker" ? CONTAINER_MODEL_DIR : request.modelPath);
 
 export const modelMounts = (request: LaunchRequest): LaunchPlan["mounts"] =>
-  request.runtime === "docker"
+  request.runtime === "docker" && request.containerModelReference === undefined
     ? [{ from: request.modelPath, to: CONTAINER_MODEL_DIR, readOnly: true }]
     : [];
 

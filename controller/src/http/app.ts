@@ -10,6 +10,7 @@ import { registerComputeRoutes } from "../modules/compute/routes";
 import { registerEngineRoutes } from "../modules/engines/routes";
 import { registerSystemRoutes } from "../modules/system/routes";
 import { registerModelsRoutes } from "../modules/models/routes";
+import { registerRemoteDeploymentRoutes } from "../modules/remote-deployments/routes";
 
 import { registerAllProxyRoutes } from "../modules/proxy/routes";
 import { registerStudioRoutes } from "../modules/studio/routes";
@@ -28,6 +29,7 @@ type ControllerApplication = ReturnType<typeof registerComputeRoutes> &
   ReturnType<typeof registerEngineRoutes> &
   ReturnType<typeof registerModelsRoutes> &
   ReturnType<typeof registerStudioRoutes> &
+  ReturnType<typeof registerRemoteDeploymentRoutes> &
   ReturnType<typeof registerAllProxyRoutes>;
 
 export const createApp = (
@@ -75,6 +77,7 @@ export const createApp = (
     registerEngineRoutes(app, context),
     registerModelsRoutes(app, context),
     registerStudioRoutes(app, context),
+    registerRemoteDeploymentRoutes(app, context),
     registerAllProxyRoutes(app, context),
     effectRoute(app.get, "/health", (ctx) => Effect.succeed(ctx.json({ status: "ok" }))),
   );

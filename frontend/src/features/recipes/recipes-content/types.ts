@@ -12,4 +12,5 @@ export type RecipesTableProps = {
   onStop: () => void;
   onEdit: (recipe: RecipeWithStatus) => void;
   onRequestDelete: (recipeId: string) => void;
+  onDeployRemote: (recipe: RecipeWithStatus) => void;
 };

@@ -4,6 +4,7 @@ import { createLogsApi } from "./logs";
 import { createRecipesApi } from "./recipes";
 import { createStudioApi } from "./studio";
 import { createSystemApi } from "./system";
+import { createRemoteDeploymentsApi } from "./remote-deployments";
 
 export function createApiClient(params: {
   baseUrl: string;
@@ -18,6 +19,7 @@ export function createApiClient(params: {
     ...createLogsApi(core),
     ...createStudioApi(core),
     ...createRigsApi(core),
+    ...createRemoteDeploymentsApi(core),
     healthPoll: (timeoutMs?: number) => core.healthPoll(timeoutMs),
   };
 }

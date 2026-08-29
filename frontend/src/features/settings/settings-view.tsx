@@ -5,6 +5,7 @@ import {
   Cable,
   Cpu,
   Keyboard,
+  KeyRound,
   type LucideIcon,
   Paintbrush,
   ServerCog,
@@ -21,6 +22,7 @@ import { EnginesSection } from "./engines-section";
 import { ServicesSettings, SystemDetails, SystemOverview } from "./system-settings-section";
 import { useMountSubscription } from "@/hooks/use-mount-subscription";
 import { ProfileSettings } from "./profile-settings";
+import { RemoteComputeSettings } from "./remote-compute-settings";
 interface SettingsViewProps {
   data: ConfigData | null;
   compatibilityReport: CompatibilityReport | null;
@@ -44,6 +46,7 @@ const sectionIcon = (Icon: LucideIcon) => <Icon className="h-3.5 w-3.5" />;
 const SECTIONS: SettingsSectionDef[] = [
   ["profile", "Profile & phone", "Your identity and phone pairing.", Smartphone],
   ["connection", "General", "Controller connections and API access.", Cable],
+  ["remote", "Remote compute", "Credentials for hosted GPU providers.", KeyRound],
   ["system", "System", "Engines, services, storage, and hardware.", Cpu],
   ["appearance", "Appearance", "Theme, typography, and interface scale.", Paintbrush],
   ["terminal", "Shortcuts", "Quick panel and terminal key bindings.", Keyboard],
@@ -133,6 +136,7 @@ export function SettingsView({
         />
       ) : null}
       {activeSection === "profile" ? <ProfileSettings /> : null}
+      {activeSection === "remote" ? <RemoteComputeSettings /> : null}
       {activeSection === "system" ? (
         <div className="space-y-10">
           <SystemOverview
