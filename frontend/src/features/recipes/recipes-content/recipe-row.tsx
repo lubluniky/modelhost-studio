@@ -24,6 +24,7 @@ type Props = {
   onEdit: (recipe: RecipeWithStatus) => void;
   onRequestDelete: (recipeId: string) => void;
   onAttachAgents: (recipe: RecipeWithStatus) => void;
+  onDeployRemote: (recipe: RecipeWithStatus) => void;
 };
 
 /**
@@ -48,6 +49,7 @@ export const ServerRow = memo(function ServerRow({
   onEdit,
   onRequestDelete,
   onAttachAgents,
+  onDeployRemote,
 }: Props) {
   const handleTogglePin = useCallback(() => onTogglePin(recipe.id), [onTogglePin, recipe.id]);
   const handleLaunch = useCallback(() => onLaunch(recipe.id), [onLaunch, recipe.id]);
@@ -67,6 +69,10 @@ export const ServerRow = memo(function ServerRow({
     () => onRequestDelete(recipe.id),
     [onRequestDelete, recipe.id],
   );
+  const handleDeployRemote = useCallback(() => {
+    onToggleMenu(recipe.id);
+    onDeployRemote(recipe);
+  }, [onDeployRemote, onToggleMenu, recipe]);
 
   const tp = recipe.tp || recipe.tensor_parallel_size || 1;
   const pp = recipe.pp || recipe.pipeline_parallel_size || 1;
@@ -153,6 +159,7 @@ export const ServerRow = memo(function ServerRow({
             onTogglePin={handleTogglePin}
             onEdit={handleEdit}
             onAttachAgents={handleAttachAgents}
+            onDeployRemote={handleDeployRemote}
             onRequestDelete={handleRequestDelete}
           />
         </div>
@@ -169,6 +176,7 @@ function ServerRowMenu({
   onTogglePin,
   onEdit,
   onAttachAgents,
+  onDeployRemote,
   onRequestDelete,
 }: {
   open: boolean;
@@ -178,6 +186,7 @@ function ServerRowMenu({
   onTogglePin: () => void;
   onEdit: () => void;
   onAttachAgents: () => void;
+  onDeployRemote: () => void;
   onRequestDelete: () => void;
 }) {
   return (
@@ -198,6 +207,7 @@ function ServerRowMenu({
         <div className={`absolute right-0 z-50 mt-1 w-48 ${POPOVER_MENU_CLASS}`}>
           <MenuItem onClick={onTogglePin}>{pinned ? "Unpin" : "Pin"}</MenuItem>
           <MenuItem onClick={onEdit}>Edit</MenuItem>
+          <MenuItem onClick={onDeployRemote}>Deploy remote…</MenuItem>
           <MenuItem onClick={onAttachAgents}>Attach to local agents…</MenuItem>
           <div className={POPOVER_SEPARATOR_CLASS} aria-hidden />
           <MenuItem
