@@ -3,7 +3,11 @@ import { badRequest, notFound } from "../../core/errors";
 import { decodeJsonBody } from "../../core/validation";
 import { effectHandler } from "../../http/effect-handler";
 import { documentRoute, defineRoutes, mergeRoutes } from "../../http/route-registrar";
-import { savePersistedConfig, type ProviderConfig } from "../../config/persisted-config";
+import type { ProviderConfig } from "../../config/persisted-config";
+import {
+  removeProviderConfig,
+  upsertProviderConfig,
+} from "../../services/provider-configs";
 
 type ProviderView = {
   id: string;
@@ -32,11 +36,6 @@ const ProviderModelsSchema = Schema.Struct({
   data: Schema.optional(Schema.Array(Schema.Struct({ id: Schema.optional(Schema.String) }))),
 });
 
-class ProviderPersistenceError extends Schema.TaggedErrorClass<ProviderPersistenceError>()(
-  "ProviderPersistenceError",
-  { message: Schema.String, source: Schema.optional(Schema.Unknown) },
-) {}
-
 const serializeProvider = (provider: ProviderConfig): ProviderView => ({
   id: provider.id,
   name: provider.name,
@@ -44,19 +43,6 @@ const serializeProvider = (provider: ProviderConfig): ProviderView => ({
   enabled: provider.enabled,
   has_api_key: Boolean(provider.api_key),
 });
-
-const saveProviders = (
-  context: { config: { data_dir: string; providers: ProviderConfig[] } },
-  providers: ProviderConfig[],
-): Effect.Effect<void, ProviderPersistenceError> =>
-  Effect.try({
-    try: () => {
-      savePersistedConfig(context.config.data_dir, { providers });
-      context.config.providers = providers;
-    },
-    catch: (source) =>
-      new ProviderPersistenceError({ message: "Could not save providers", source }),
-  });
 
 const required = (
   value: string,
@@ -121,7 +107,7 @@ export const registerStudioProviderRoutes = defineRoutes((app, context) => {
             api_key: body.api_key?.trim() ?? "",
             enabled: body.enabled ?? true,
           };
-          yield* saveProviders(context, [...context.config.providers, provider]);
+          yield* upsertProviderConfig(context, provider);
           return ctx.json({ success: true, provider: serializeProvider(provider) });
         }),
       ),
@@ -139,6 +125,11 @@ export const registerStudioProviderRoutes = defineRoutes((app, context) => {
           );
           const current = index >= 0 ? context.config.providers[index] : undefined;
           if (!current) return yield* Effect.fail(notFound(`Provider "${providerId}" not found`));
+          if (current.managed_by_remote_deployment_id) {
+            return yield* Effect.fail(
+              badRequest("Managed remote providers can only be changed through their deployment"),
+            );
+          }
           const name = body.name === undefined ? current.name : yield* required(body.name, "name");
           const baseUrl =
             body.base_url === undefined
@@ -151,9 +142,7 @@ export const registerStudioProviderRoutes = defineRoutes((app, context) => {
             api_key: body.api_key?.trim() ?? current.api_key,
             enabled: body.enabled ?? current.enabled,
           };
-          const providers = [...context.config.providers];
-          providers[index] = updated;
-          yield* saveProviders(context, providers);
+          yield* upsertProviderConfig(context, updated);
           return ctx.json({ success: true, provider: serializeProvider(updated) });
         }),
       ),
@@ -165,13 +154,16 @@ export const registerStudioProviderRoutes = defineRoutes((app, context) => {
       effectHandler((ctx) =>
         Effect.gen(function* () {
           const providerId = ctx.req.param("id") ?? "";
-          if (!context.config.providers.some((provider) => provider.id === providerId)) {
+          const provider = context.config.providers.find((candidate) => candidate.id === providerId);
+          if (!provider) {
             return yield* Effect.fail(notFound(`Provider "${providerId}" not found`));
           }
-          yield* saveProviders(
-            context,
-            context.config.providers.filter((provider) => provider.id !== providerId),
-          );
+          if (provider.managed_by_remote_deployment_id) {
+            return yield* Effect.fail(
+              badRequest("Managed remote providers can only be removed with their deployment"),
+            );
+          }
+          yield* removeProviderConfig(context, providerId);
           return ctx.json({ success: true });
         }),
       ),

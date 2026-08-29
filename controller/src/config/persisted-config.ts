@@ -14,6 +14,7 @@ export interface ProviderConfig {
   base_url: string;
   api_key: string;
   enabled: boolean;
+  managed_by_remote_deployment_id?: string;
 }
 
 export interface PersistedConfig {
