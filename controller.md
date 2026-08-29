@@ -241,13 +241,15 @@ Model index: `GET /studio/model-index`
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/remote-deployments/providers` | Return configured flags and MVP capabilities without returning credentials. |
+| GET | `/remote-deployments/credentials` | Return redacted configured/source status for Vast.ai, RunPod, and Hugging Face credentials. |
+| PUT | `/remote-deployments/credentials` | Save, rotate, or remove controller-side credentials without returning their values. |
 | POST | `/remote-deployments/offers` | Resolve recipe requirements and return normalized Vast.ai and RunPod offers. |
 | GET | `/remote-deployments` | List persisted deployments, optionally filtered by `recipe_id`. |
 | GET | `/remote-deployments/:deploymentId` | Return one deployment lifecycle view. |
 | POST | `/remote-deployments` | Revalidate an offer, persist intent, create the rented instance, and begin supervised readiness. |
 | DELETE | `/remote-deployments/:deploymentId` | Disable routing, destroy the provider instance, and retain the audit record. |
 
-Remote provisioning is configured in ignored `.env.local` with `LOCAL_STUDIO_VAST_API_KEY` and/or `LOCAL_STUDIO_RUNPOD_API_KEY`. `LOCAL_STUDIO_HF_TOKEN` is optional for private or gated Hugging Face models. Provider keys and generated vLLM keys remain controller-side. A healthy deployment is routed as `remote-{provider}-{deploymentId}/{model}` through the existing provider path.
+Remote provisioning credentials are configured in Settings > Remote compute and stored in the mode-0600 controller database. Ignored `.env.local` variables remain fallback inputs for unattended setups. `LOCAL_STUDIO_HF_TOKEN` is optional for private or gated Hugging Face models. Provider keys and generated vLLM keys remain controller-side. A healthy deployment is routed as `remote-{provider}-{deploymentId}/{model}` through the existing provider path.
 
 ### 5.6 System (`modules/system/routes.ts` + sub-registrars)
 `GET /status`, `GET /gpus`, `GET /compat`, `POST /vram-calculator`, `GET /config`
@@ -269,7 +271,7 @@ Usage: `GET /usage`
 | `PeakMetricsStore` | `system/metrics-store.ts` | `peak_metrics` | Peak benchmark metrics per model (prefill/generation TPS, TTFT). |
 | `LifetimeMetricsStore` | `system/metrics-store.ts` | lifetime metrics tables | Cumulative token/request counters. |
 | `InferenceRequestStore` | `stores/inference-request-store.ts` | `inference_requests` | Per-inference usage records + aggregation. |
-| `ControllerSettingsStore` | `stores/controller-settings-store.ts` | `controller_settings` | UI preferences. |
+| `ControllerSettingsStore` | `stores/controller-settings-store.ts` | `controller_settings` | UI preferences and controller-side remote deployment credentials. Credential reads expose only configured/source status. |
 | `ControllerRequestStore` | `stores/controller-request-store.ts` | `controller_requests`, `controller_function_calls` | Request + internal-function telemetry. |
 | `RigStore` | `stores/rig-store.ts` | `rigs` | Persisted rig/node records. |
 | `RemoteDeploymentStore` | `modules/remote-deployments/store.ts` | `remote_deployments` | Provider instance identity, selected offer, lifecycle, endpoint, price, health, and reconciliation state. |

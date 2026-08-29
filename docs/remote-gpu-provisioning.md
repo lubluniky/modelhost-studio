@@ -4,10 +4,12 @@
 
 Remote GPU deployments are not local `InstanceRecord` variants. A local instance record is also the local GPU lease, its state depends on a local launcher handle, and its health probe always targets a loopback port. Reusing that record for a rented machine would break all three invariants.
 
-The remote deployment service sits beside `modules/compute`. It reuses recipe normalization and the pure vLLM launch plan, but owns cloud offers, provider API calls, cloud lifecycle state, reconciliation, and teardown. Once a remote vLLM server is healthy, the service registers it as an ordinary OpenAI-compatible provider. Existing `providerId/model` routing, SSE streaming, model discovery, and usage accounting then work without a second inference proxy.
+The remote deployment service sits beside `modules/compute`. It reuses recipe normalization and the pure vLLM launch plan, but owns cloud offers, provider API calls, cloud lifecycle state, reconciliation, and teardown. The service persists an ordinary OpenAI-compatible provider route in a disabled state before it creates the remote instance, then enables that route only after the remote vLLM server is healthy. Existing `providerId/model` routing, SSE streaming, model discovery, and usage accounting then work without a second inference proxy.
 
 ```mermaid
 flowchart LR
+  Settings[Settings credential UI] --> CredentialStore[(Controller settings in SQLite)]
+  CredentialStore --> Offers
   UI[Models UI] --> Offers[Remote deployment routes]
   Offers --> Requirements[Recipe requirements resolver]
   Requirements --> Vast[Vast adapter]
@@ -111,7 +113,8 @@ New files:
 
 - `controller/contracts/remote-deployments.ts`: shared API and SSE types.
 - `controller/src/modules/remote-deployments/contracts.ts`: provider-neutral controller interfaces and failures.
-- `controller/src/modules/remote-deployments/credentials.ts`: server-side Vast, RunPod, Hugging Face credential lookup and configured flags.
+- `controller/src/modules/remote-deployments/credentials.ts`: environment fallback merge and redacted credential status.
+- `controller/src/modules/remote-deployments/credential-manager.ts`: persisted credential updates, effective credential selection, and live provider adapter replacement.
 - `controller/src/modules/remote-deployments/requirements.ts`: recipe to Hugging Face model resolution and VRAM requirement calculation.
 - `controller/src/modules/remote-deployments/bootstrap.ts`: authenticated vLLM container specification derived from the existing recipe and engine plan.
 - `controller/src/modules/remote-deployments/providers/vast.ts`: Vast offer and instance lifecycle adapter.
@@ -122,12 +125,14 @@ New files:
 - `controller/src/modules/remote-deployments/supervisor.ts`: bounded periodic reconciliation.
 - `controller/src/services/provider-configs.ts`: one owner for persisted provider config mutations used by manual and managed providers.
 - `frontend/src/lib/api/remote-deployments.ts`: typed frontend API client.
+- `frontend/src/features/settings/remote-compute-settings.tsx`: password inputs, redacted status, rotation, and removal controls.
 - `frontend/src/features/recipes/remote-deployment/remote-deployment-drawer.tsx`: offer and lifecycle UI.
 - `frontend/src/features/recipes/remote-deployment/remote-deployment-model.ts`: drawer state and controller event reconciliation.
 
 Existing files changed:
 
 - `controller/src/config/env.ts`: read controller-only credential presence without serializing credential values.
+- `controller/src/stores/controller-settings-store.ts`: persist remote provider credentials in the existing mode-0600 controller database.
 - `controller/src/config/persisted-config.ts`: mark generated provider routes as deployment-managed.
 - `controller/src/modules/compute/contracts.ts` and `controller/src/modules/compute/engines/shared.ts`: allow a container launch plan to use a registry model id instead of a local mount. Local plans remain unchanged.
 - `controller/src/modules/studio/provider-routes.ts`: use the shared provider-config mutation service.
@@ -151,7 +156,7 @@ Included:
 - On-demand offers. Interruptible metadata is normalized when a provider returns it, but the first deploy flow defaults to non-interruptible capacity.
 - A generated vLLM API key for every deployment.
 - Offer browsing, provision progress, readiness, ready state, destroy, and failed cleanup in the Models UI.
-- Provider registration only after authenticated `/health` and `/v1/models` succeed.
+- Provider routing enabled only after authenticated `/health` and `/v1/models` succeed.
 - Startup and periodic reconciliation.
 
 Excluded from this MVP:
@@ -180,13 +185,15 @@ References:
 
 The persisted record contains provider, provider instance id, normalized selected offer, price at creation, region, recipe id, Hugging Face model id, backend, status, stage, remote base URL, provider route id, creation and update timestamps, last health time and result, and a redacted error summary.
 
-Provider API keys and the Hugging Face token come only from controller environment variables:
+Settings > Remote compute stores provider API keys and the optional Hugging Face token in the existing controller SQLite database. The database is mode `0600`. Credential values never appear in GET responses; the browser receives only `configured` and `source` fields. Saving or rotating a key replaces the in-memory provider adapter immediately, so no controller restart is required.
+
+Controller environment variables remain fallback inputs for unattended setups:
 
 - `LOCAL_STUDIO_VAST_API_KEY`
 - `LOCAL_STUDIO_RUNPOD_API_KEY`
 - `LOCAL_STUDIO_HF_TOKEN`, with the existing `HF_TOKEN` and `HUGGINGFACE_TOKEN` fallbacks
 
-The generated inference key is stored only in the controller's mode-0600 provider config, never in the deployment view or browser response. The managed provider record includes the owning deployment id so reconciliation and teardown can repair both sides.
+Settings values take precedence over environment fallbacks. Removing a Settings value reveals the corresponding environment fallback when one exists. The generated inference key is stored only in the controller's mode-0600 provider config, never in the deployment view or browser response. The managed provider record includes the owning deployment id so reconciliation and teardown can repair both sides.
 
 On controller startup, reconciliation runs before the periodic supervisor:
 
@@ -218,6 +225,8 @@ Provider response bodies, authorization headers, generated inference keys, Huggi
 ## API
 
 - `GET /remote-deployments/providers`: provider configured flags and supported MVP capabilities.
+- `GET /remote-deployments/credentials`: redacted configured/source status for Vast.ai, RunPod, and Hugging Face credentials.
+- `PUT /remote-deployments/credentials`: save, rotate, or remove any credential. Omitted fields are preserved, strings replace stored values, and `null` removes a stored value. The response contains status only.
 - `POST /remote-deployments/offers`: resolve one recipe's requirements and return normalized compatible and incompatible offers.
 - `GET /remote-deployments`: list deployment views, optionally filtered by recipe id.
 - `GET /remote-deployments/:deploymentId`: return one deployment view.
@@ -244,15 +253,16 @@ The visible UI path is checked against an isolated local controller: Models → 
 
 ## Local end-to-end run
 
-1. Copy `.env.example` to ignored `.env.local`.
-2. Add `LOCAL_STUDIO_VAST_API_KEY` and/or `LOCAL_STUDIO_RUNPOD_API_KEY`. Add `LOCAL_STUDIO_HF_TOKEN` only for a private or gated model. Never put these values in frontend settings.
-3. Start the normal development workflow with `npm run dev`.
-4. Open Models → Your servers, open a vLLM recipe's actions, and choose Deploy remote.
-5. Select configured providers, refresh offers, compare compatible and incompatible rows, choose one offer, and click Deploy. The quoted hourly price applies until the instance is destroyed.
-6. Wait for `ready`, then use the displayed `remote-{provider}-{deploymentId}/{model}` id through the existing Local Studio chat or OpenAI-compatible controller API.
-7. Click Destroy and verify the deployment reaches `destroyed`. If teardown fails, retry while the route remains disabled.
+1. Start the normal development workflow with `npm run dev`.
+2. Open Settings → Remote compute. Paste a Vast.ai API key and/or RunPod API key, then click Save. Add a Hugging Face token only for a private or gated model. The fields clear after saving and values cannot be read back.
+3. Open Models → Your servers, open a vLLM recipe's actions, and choose Deploy remote.
+4. Select configured providers, refresh offers, compare compatible and incompatible rows, choose one offer, and click Deploy. The quoted hourly price applies until the instance is destroyed.
+5. Wait for `ready`, then use the displayed `remote-{provider}-{deploymentId}/{model}` id through the existing Local Studio chat or OpenAI-compatible controller API.
+6. Click Destroy and verify the deployment reaches `destroyed`. If teardown fails, retry while the route remains disabled.
 
-The controller-side contract can be inspected without spending money through `GET /remote-deployments/providers` and the persisted deployment list. Offer lookup may call provider catalog APIs, but instance creation happens only after the explicit Deploy action.
+For unattended controller setup, copy `.env.example` to ignored `.env.local` and use the documented environment fallbacks instead of Settings.
+
+The controller-side contract can be inspected without spending money through `GET /remote-deployments/credentials`, `GET /remote-deployments/providers`, and the persisted deployment list. Offer lookup may call provider catalog APIs, but instance creation happens only after the explicit Deploy action.
 
 ## Known limitations
 

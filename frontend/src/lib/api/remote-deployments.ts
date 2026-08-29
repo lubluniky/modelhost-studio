@@ -1,5 +1,7 @@
 import type {
   RemoteComputeProviderId,
+  RemoteDeploymentCredentialStatus,
+  RemoteDeploymentCredentialUpdate,
   RemoteDeploymentCreateRequest,
   RemoteDeploymentView,
   RemoteOfferResponse,
@@ -11,6 +13,18 @@ export function createRemoteDeploymentsApi(core: ApiCore) {
   return {
     getRemoteProviderStatuses: (): Promise<{ providers: RemoteProviderStatus[] }> =>
       core.request("/remote-deployments/providers"),
+
+    getRemoteDeploymentCredentialStatuses: (): Promise<{
+      credentials: RemoteDeploymentCredentialStatus[];
+    }> => core.request("/remote-deployments/credentials"),
+
+    updateRemoteDeploymentCredentials: (
+      payload: RemoteDeploymentCredentialUpdate,
+    ): Promise<{ credentials: RemoteDeploymentCredentialStatus[] }> =>
+      core.request("/remote-deployments/credentials", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
 
     getRemoteOffers: (payload: {
       recipe_id: string;
