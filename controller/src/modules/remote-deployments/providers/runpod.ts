@@ -23,9 +23,9 @@ const RUNPOD_REST = "https://rest.runpod.io/v1/pods";
 
 const RunPodPriceSchema = Schema.NullOr(
   Schema.Struct({
-    stockStatus: Schema.optional(Schema.String),
+    stockStatus: Schema.optional(Schema.NullOr(Schema.String)),
     uninterruptablePrice: Schema.optional(Schema.NullOr(Schema.Number)),
-    availableGpuCounts: Schema.optional(Schema.Array(Schema.Number)),
+    availableGpuCounts: Schema.optional(Schema.NullOr(Schema.Array(Schema.Number))),
   }),
 );
 
