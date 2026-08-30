@@ -28,6 +28,13 @@ import {
 import type { RemoteDeploymentStore } from "./store";
 
 const PROVIDER_IDS: readonly RemoteComputeProviderId[] = ["vast", "runpod"];
+const OFFER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CachedOffer = {
+  readonly recipeId: string;
+  readonly offer: RemoteComputeOffer;
+  readonly expiresAt: number;
+};
 
 export interface RemoteDeploymentServiceDependencies {
   readonly config: Config;
@@ -41,6 +48,7 @@ export interface RemoteDeploymentServiceDependencies {
 
 export class RemoteDeploymentService {
   private readonly operationLocks = new Map<string, Semaphore.Semaphore>();
+  private readonly offerCache = new Map<string, CachedOffer>();
 
   public constructor(private readonly dependencies: RemoteDeploymentServiceDependencies) {}
 
@@ -95,6 +103,36 @@ export class RemoteDeploymentService {
     );
   }
 
+  private offerCacheKey(provider: RemoteComputeProviderId, offerId: string): string {
+    return `${provider}:${offerId}`;
+  }
+
+  private rememberOffers(recipeId: string, offers: readonly RemoteComputeOffer[]): void {
+    const timestamp = Date.now();
+    for (const [key, cached] of this.offerCache) {
+      if (cached.expiresAt <= timestamp) this.offerCache.delete(key);
+    }
+    const expiresAt = timestamp + OFFER_CACHE_TTL_MS;
+    for (const offer of offers) {
+      this.offerCache.set(this.offerCacheKey(offer.provider, offer.id), {
+        recipeId,
+        offer,
+        expiresAt,
+      });
+    }
+  }
+
+  private cachedOffer(request: RemoteDeploymentCreateRequest): RemoteComputeOffer | null {
+    const key = this.offerCacheKey(request.provider, request.offer_id);
+    const cached = this.offerCache.get(key);
+    if (!cached) return null;
+    if (cached.expiresAt <= Date.now() || cached.recipeId !== request.recipe_id) {
+      this.offerCache.delete(key);
+      return null;
+    }
+    return cached.offer;
+  }
+
   public offers(
     recipeId: string,
     selectedProviders?: readonly RemoteComputeProviderId[],
@@ -115,15 +153,17 @@ export class RemoteDeploymentService {
           }),
         ),
       );
+      const offers = results
+        .flatMap((result) => result.offers)
+        .sort(
+          (left, right) =>
+            Number(right.compatible) - Number(left.compatible) ||
+            left.hourly_price - right.hourly_price,
+        );
+      service.rememberOffers(recipeId, offers);
       return {
         requirements,
-        offers: results
-          .flatMap((result) => result.offers)
-          .sort(
-            (left, right) =>
-              Number(right.compatible) - Number(left.compatible) ||
-              left.hourly_price - right.hourly_price,
-          ),
+        offers,
         provider_errors: results.flatMap((result) => (result.error ? [result.error] : [])),
       };
     });
@@ -188,8 +228,13 @@ export class RemoteDeploymentService {
       );
       const requirements = yield* service.resolveRequirements(recipe.id);
       const provider = yield* service.dependencies.credentialManager.provider(request.provider);
-      const offers = yield* provider.listOffers(requirements);
-      const offer = offers.find((candidate) => candidate.id === request.offer_id);
+      const offer =
+        service.cachedOffer(request) ??
+        (yield* provider
+          .listOffers(requirements)
+          .pipe(
+            Effect.map((offers) => offers.find((candidate) => candidate.id === request.offer_id)),
+          ));
       if (!offer?.compatible) {
         return yield* Effect.fail(
           failure(

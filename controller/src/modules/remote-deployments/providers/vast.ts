@@ -21,9 +21,11 @@ import {
 
 const VAST_API = "https://console.vast.ai/api/v0";
 const VAST_PORT = "8000/tcp";
+const VAST_MIN_COMPUTE_CAPABILITY = 800;
 
 const VastOfferSchema = Schema.Struct({
   id: Schema.Union([Schema.Number, Schema.String]),
+  compute_cap: Schema.optional(Schema.Number),
   gpu_name: Schema.optional(Schema.String),
   gpu_ram: Schema.optional(Schema.Number),
   gpu_total_ram: Schema.optional(Schema.Number),
@@ -94,6 +96,7 @@ export const normalizeVastOffer = (
   const gpuCount = offer.num_gpus ?? 0;
   const hourlyPrice = offer.dph_total_adj ?? offer.dph_total ?? 0;
   const available = offer.rentable !== false && offer.rented !== true && hourlyPrice > 0;
+  const modernGpu = (offer.compute_cap ?? 0) >= VAST_MIN_COMPUTE_CAPABILITY;
   return {
     id: String(offer.id),
     provider: "vast",
@@ -108,7 +111,10 @@ export const normalizeVastOffer = (
     reliability: offer.reliability2 ?? offer.reliability ?? null,
     availability: available ? "available" : "unavailable",
     compatible:
-      available && gpuCount === requirements.gpu_count && gpuMemoryGb >= requirements.min_vram_gb,
+      available &&
+      modernGpu &&
+      gpuCount === requirements.gpu_count &&
+      gpuMemoryGb >= requirements.min_vram_gb,
   };
 };
 
@@ -161,12 +167,15 @@ export const makeVastProvider = (
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            limit: 50,
+            limit: 100,
             type: "ondemand",
             verified: { eq: true },
             rentable: { eq: true },
             rented: { eq: false },
             num_gpus: { eq: requirements.gpu_count },
+            gpu_ram: { gte: Math.ceil(requirements.min_vram_gb * 1024) },
+            compute_cap: { gte: VAST_MIN_COMPUTE_CAPABILITY },
+            direct_port_count: { gte: 1 },
             order: [["dph_total", "asc"]],
           }),
         },
