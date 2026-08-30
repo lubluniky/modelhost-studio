@@ -8,8 +8,7 @@ import {
   type PersistedToolSelectionFields,
 } from "@/features/agent/tools/selection-persistence";
 import type { ComposerSkillRef } from "@/features/agent/composer-context";
-import { isAgentThinkingLevel } from "@/features/agent/contracts";
-import type { AgentToolAccess } from "@/features/agent/contracts";
+import { isAgentThinkingLevel, type AgentToolAccess } from "@/features/agent/contracts";
 import type {
   PaneId,
   PaneState,
