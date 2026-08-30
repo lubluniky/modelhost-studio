@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { RemoteComputeRequirements } from "@local-studio/contracts/remote-deployments";
 import type { Config } from "../../config/env";
-import { recipeToLaunchInput } from "../compute/active-model";
+import { recipeToLaunchInput } from "../compute/bridge";
 import type { HostProfile } from "../compute/contracts";
 import { engineSpec } from "../compute/engines/registry";
 import type { Recipe } from "../models/types";
@@ -82,6 +82,7 @@ export const makeRemoteBootstrap = (input: {
     extraArgs: [...safeRemoteArguments(launch.extraArgs), "--api-key", apiKey],
     env: environment,
     dockerImage: launch.dockerImage,
+    binary: launch.binary ?? spec.defaultBinary,
   });
   if (!plan.image) throw new Error("Remote vLLM image is unavailable");
   return {
