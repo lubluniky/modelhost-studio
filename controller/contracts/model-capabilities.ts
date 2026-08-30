@@ -5,6 +5,11 @@ export type ModelVisionInput = {
   modalities?: readonly unknown[];
 };
 
+export type ModelToolCallingInput = {
+  metadata?: unknown;
+  fallback?: boolean;
+};
+
 const VISION_IDENTIFIER_PATTERNS = [
   "mimo-v2.5",
   "mimo-v2-5",
@@ -121,3 +126,22 @@ export const resolveModelVision = ({
   modalities = [],
 }: ModelVisionInput): boolean =>
   recipeOverride ?? legacyVision(metadata, modalities) ?? inferModelVision(identifiers);
+
+export const resolveModelToolCalling = ({
+  metadata,
+  fallback = true,
+}: ModelToolCallingInput): boolean => {
+  const record = isRecord(metadata) ? metadata : {};
+  const capabilities = isRecord(record["capabilities"]) ? record["capabilities"] : {};
+  return (
+    firstBoolean([
+      record["toolCalling"],
+      record["tool_calling"],
+      record["supportsTools"],
+      record["supports_tools"],
+      capabilities["toolCalling"],
+      capabilities["tool_calling"],
+      capabilities["tools"],
+    ]) ?? fallback
+  );
+};

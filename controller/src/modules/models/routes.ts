@@ -43,6 +43,8 @@ import { isRecipeRunning } from "./recipes/recipe-matching";
 import { notFound } from "../../core/errors";
 import { findObservedInferenceProcess } from "../../core/function-observability";
 import { fetchInference } from "../../http/local-fetch";
+import { listProviderModelsCached } from "../../services/provider-routing";
+import { getDefaultReasoningParser, getDefaultToolCallParser } from "../compute/recipe-defaults";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -55,8 +57,14 @@ function recipeMetadata(recipe: Recipe): Record<string, unknown> {
 
 function resolvedRecipeMetadata(recipe: Recipe, modelId: string): Record<string, unknown> {
   const metadata = recipeMetadata(recipe);
+  const capabilities = isRecord(metadata["capabilities"]) ? metadata["capabilities"] : {};
   return {
     ...metadata,
+    capabilities: {
+      ...capabilities,
+      reasoning: Boolean(recipe.reasoning_parser ?? getDefaultReasoningParser(recipe)),
+      toolCalling: Boolean(recipe.tool_call_parser ?? getDefaultToolCallParser(recipe)),
+    },
     vision: resolveModelVision({
       identifiers: [modelId, recipe.id, recipe.name, recipe.model_path],
       recipeOverride: recipe.vision,
@@ -127,6 +135,47 @@ export const registerModelsRoutes = defineRoutes((app, context) => {
                 vision: resolveModelVision({ identifiers: [inferredId] }),
               },
             });
+          }
+
+          const providerCatalogs = yield* listProviderModelsCached(context.config.providers);
+          const deployments = yield* context.stores.remoteDeploymentStore
+            .list()
+            .pipe(Effect.catch(() => Effect.succeed([])));
+          const deploymentsById = new Map(
+            deployments.map((deployment) => [deployment.id, deployment]),
+          );
+          const recipesById = new Map<string, Recipe>(
+            recipes.map((recipe) => [recipe.id, recipe]),
+          );
+          for (const catalog of providerCatalogs) {
+            const provider = context.config.providers.find((entry) => entry.id === catalog.provider);
+            const deployment = provider?.managed_by_remote_deployment_id
+              ? deploymentsById.get(provider.managed_by_remote_deployment_id)
+              : undefined;
+            const managedRecipe = deployment ? recipesById.get(deployment.recipeId) : undefined;
+            for (const model of catalog.models) {
+              const modelId = `${catalog.provider}/${model.id}`;
+              const managedMetadata = managedRecipe
+                ? resolvedRecipeMetadata(managedRecipe, model.id)
+                : {};
+              models.push({
+                id: modelId,
+                object: "model",
+                created: now,
+                owned_by: catalog.provider,
+                active: false,
+                max_model_len: model.max_model_len ?? null,
+                metadata: {
+                  ...managedMetadata,
+                  external: true,
+                  provider: catalog.provider,
+                  vision:
+                    typeof managedMetadata["vision"] === "boolean"
+                      ? managedMetadata["vision"]
+                      : resolveModelVision({ identifiers: [model.id, modelId] }),
+                },
+              });
+            }
           }
 
           const payload: OpenAIModelList = { object: "list", data: models };
