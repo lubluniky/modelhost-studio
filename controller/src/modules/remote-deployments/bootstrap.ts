@@ -66,8 +66,8 @@ export const makeRemoteBootstrap = (input: {
   const apiKey = randomBytes(32).toString("base64url");
   const spec = engineSpec("vllm");
   const environment = { ...launch.env };
-  delete environment["VLLM_API_KEY"];
   delete environment["HF_TOKEN"];
+  environment["VLLM_API_KEY"] = apiKey;
   if (input.huggingFaceToken) environment["HF_TOKEN"] = input.huggingFaceToken;
   const plan = spec.plan({
     engine: "vllm",
@@ -79,7 +79,7 @@ export const makeRemoteBootstrap = (input: {
     containerModelReference: input.requirements.model_id,
     servedModelName: launch.servedModelName,
     options: launch.options,
-    extraArgs: [...safeRemoteArguments(launch.extraArgs), "--api-key", apiKey],
+    extraArgs: safeRemoteArguments(launch.extraArgs),
     env: environment,
     dockerImage: launch.dockerImage,
     binary: launch.binary ?? spec.defaultBinary,
