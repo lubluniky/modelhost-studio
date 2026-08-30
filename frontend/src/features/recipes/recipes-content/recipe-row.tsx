@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useCallback, type MouseEvent, type ReactNode } from "react";
+import { memo, useCallback, useRef, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { MoreVertical, Play, Square } from "@/ui/icon-registry";
 import type { RecipeWithStatus } from "@/lib/types";
 import { ModelLogo } from "@/ui/model-logo";
@@ -10,6 +11,9 @@ import { modelIdFromPath } from "@/lib/huggingface";
 import { formatBackendLabel } from "@/features/recipes/recipe-labels";
 import { visionModeOverrideLabel } from "@/features/recipes/recipe-vision";
 import { DataRow, EndCell, LeadCell, NumCell, RowAction, StatusText } from "./catalog-table-shell";
+
+const MENU_GAP_PX = 4;
+const VIEWPORT_MARGIN_PX = 8;
 
 type Props = {
   recipe: RecipeWithStatus;
@@ -189,8 +193,37 @@ function ServerRowMenu({
   onDeployRemote: () => void;
   onRequestDelete: () => void;
 }) {
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const placeMenu = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const place = () => {
+      const anchor = anchorRef.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const { offsetWidth: width, offsetHeight: height } = node;
+      const maxLeft = Math.max(VIEWPORT_MARGIN_PX, window.innerWidth - width - VIEWPORT_MARGIN_PX);
+      const left = Math.min(Math.max(VIEWPORT_MARGIN_PX, anchor.right - width), maxLeft);
+      const fitsBelow =
+        anchor.bottom + MENU_GAP_PX + height <= window.innerHeight - VIEWPORT_MARGIN_PX;
+      const top = fitsBelow
+        ? anchor.bottom + MENU_GAP_PX
+        : Math.max(VIEWPORT_MARGIN_PX, anchor.top - MENU_GAP_PX - height);
+      node.style.left = `${Math.round(left)}px`;
+      node.style.top = `${Math.round(top)}px`;
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(node);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, []);
+
   return (
-    <div className="relative" onClick={(event) => event.stopPropagation()}>
+    <div ref={anchorRef} className="relative" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
         onClick={onToggle}
@@ -203,22 +236,31 @@ function ServerRowMenu({
       >
         <MoreVertical className="h-3 w-3" />
       </button>
-      {open ? (
-        <div className={`absolute right-0 z-50 mt-1 w-48 ${POPOVER_MENU_CLASS}`}>
-          <MenuItem onClick={onTogglePin}>{pinned ? "Unpin" : "Pin"}</MenuItem>
-          <MenuItem onClick={onEdit}>Edit</MenuItem>
-          <MenuItem onClick={onDeployRemote}>Deploy remote…</MenuItem>
-          <MenuItem onClick={onAttachAgents}>Attach to local agents…</MenuItem>
-          <div className={POPOVER_SEPARATOR_CLASS} aria-hidden />
-          <MenuItem
-            onClick={onRequestDelete}
-            danger
-            title={`Open delete confirmation for ${recipeName}`}
-          >
-            Delete server…
-          </MenuItem>
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={placeMenu}
+              role="menu"
+              aria-label={`${recipeName} actions`}
+              className={`fixed z-[300] w-48 ${POPOVER_MENU_CLASS}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <MenuItem onClick={onTogglePin}>{pinned ? "Unpin" : "Pin"}</MenuItem>
+              <MenuItem onClick={onEdit}>Edit</MenuItem>
+              <MenuItem onClick={onDeployRemote}>Deploy remote…</MenuItem>
+              <MenuItem onClick={onAttachAgents}>Attach to local agents…</MenuItem>
+              <div className={POPOVER_SEPARATOR_CLASS} aria-hidden />
+              <MenuItem
+                onClick={onRequestDelete}
+                danger
+                title={`Open delete confirmation for ${recipeName}`}
+              >
+                Delete server…
+              </MenuItem>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -236,6 +278,7 @@ function MenuItem({
 }) {
   return (
     <button
+      role="menuitem"
       onClick={onClick}
       title={title}
       className={cx(
