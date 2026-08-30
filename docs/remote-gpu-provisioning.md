@@ -263,9 +263,17 @@ For unattended controller setup, copy `.env.example` to ignored `.env.local` and
 
 The controller-side contract can be inspected without spending money through `GET /remote-deployments/credentials`, `GET /remote-deployments/providers`, and the persisted deployment list. Offer lookup may call provider catalog APIs, but instance creation happens only after the explicit Deploy action.
 
+## Live acceptance status
+
+RunPod completed the paid UI-to-inference-to-destroy path on 2026-08-30 with an RTX 3090 offer and the Qwen3.8 27B Heretic W4A16 recipe. Settings supplied the credential without a controller restart. The deployment reached `ready`, exposed the qualified `remote-runpod-{deploymentId}/{model}` route, returned a streamed agent response with the recipe's 4096-token context, and reached `destroyed` from the UI. The managed provider route was removed after teardown while the terminal deployment record remained for audit history.
+
+The recipe did not configure a vLLM tool-call parser. Its model metadata therefore advertises tool calling as unavailable, and Local Studio sends an empty tool set for that deployment instead of allowing vLLM to reject `tool_choice: "auto"`. Reasoning remains available through the derived `qwen3` reasoning parser.
+
+Vast live acceptance is still pending. The configured account had no balance, so no Vast instance was created and no cost was incurred.
+
 ## Known limitations
 
-- Live UI-to-inference-to-destroy acceptance has not been run against either paid provider. It requires locally configured credentials and explicit approval to incur cost.
+- RunPod has completed live UI-to-inference-to-destroy acceptance. Vast still requires a funded account and explicit approval to incur cost.
 - RunPod uses its provider HTTPS proxy. Vast exposes the mapped vLLM port directly as `http://{publicIp}:{mappedPort}`. It is protected by a generated high-entropy bearer key, but this Vast MVP path does not provide provider-native TLS.
 - VRAM compatibility is an estimate based on known weight bytes plus 25 percent headroom. Long contexts, model architecture, quantization behavior, and KV cache demand can still make an apparently compatible GPU fail readiness.
 - Price and availability are snapshots. There is no budget cap, automatic maximum price, reservation, or spend approval workflow.
