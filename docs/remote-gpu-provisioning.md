@@ -236,17 +236,19 @@ All request bodies use Effect Schema and the existing bounded-body helpers. The 
 
 ## Validation
 
-The repository policy forbids adding automated test files. A temporary probe under `.scratch/` covers these nine contract scenarios and is deleted after it runs:
+The repository policy forbids adding automated test files. A one-off in-memory probe run with the controller's pinned Effect runtime covers these nine contract scenarios without adding a test artifact:
 
 1. compatible and incompatible offer filtering;
 2. Vast and RunPod response normalization;
 3. failed provisioning cleanup;
-4. unsupported bootstrap rejection before provider mutation;
+4. remote bootstrap container failure and teardown;
 5. readiness timeout and teardown;
 6. explicit destroy and route removal;
 7. restart reconciliation and route restoration;
 8. external instance disappearance;
 9. browser payload omission of provider keys, inference keys, and recipe environment values.
+
+The 2026-08-30 completion audit passed all nine scenarios. The lifecycle probe uses the real `RemoteDeploymentService`, provider-route persistence, and public deployment view with in-memory provider and deployment-store boundaries. A separate provider probe decodes representative Vast and RunPod API payloads through the real adapters, including nullable RunPod catalog fields.
 
 The visible UI path is checked against an isolated local controller: Models → Your servers → Server actions → Deploy remote. The no-credential state renders both providers, keeps external actions disabled, and produces no browser console errors.
 
