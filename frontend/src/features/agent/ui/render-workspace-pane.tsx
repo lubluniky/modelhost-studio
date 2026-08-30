@@ -62,11 +62,11 @@ function resolvePaneModelId(
   for (const candidate of candidates) {
     const exact = models.find((model) => model.id === candidate);
     if (exact) return exact.id;
-    const alias = models.find(
+    const aliases = models.filter(
       (model) =>
         model.rawId === candidate || model.name === candidate || model.id.endsWith(`/${candidate}`),
     );
-    if (alias) return alias.id;
+    if (aliases.length === 1) return aliases[0]?.id ?? candidate;
   }
   return (
     selectedModelId ||
@@ -175,6 +175,7 @@ const WorkspacePane = memo(function WorkspacePane({
       modelId={view.modelId}
       modelName={view.model?.name ?? view.modelId ?? null}
       modelSupportsVision={view.model?.vision ?? false}
+      modelSupportsTools={view.model?.toolCalling !== false}
       modelThinkingLevels={view.model?.thinkingLevels ?? ["off"]}
       modelsLoading={modelsLoading}
       contextWindow={view.model?.contextWindow ?? 0}

@@ -216,6 +216,7 @@ type Props = {
   modelId: string;
   modelName: string | null;
   modelSupportsVision: boolean;
+  modelSupportsTools: boolean;
   modelThinkingLevels: readonly AgentThinkingLevel[];
   modelsLoading: boolean;
   contextWindow: number;
@@ -265,6 +266,7 @@ export function ChatPane({
   modelId,
   modelName,
   modelSupportsVision,
+  modelSupportsTools,
   modelThinkingLevels,
   modelsLoading,
   contextWindow,
@@ -429,6 +431,9 @@ export function ChatPane({
     reasoningDisabled: Boolean(running),
     onSelectReasoning: selectThinkingLevel,
   });
+  const toolAccess = modelSupportsTools ? (activeTab?.toolAccess ?? "full") : "none";
+  const agentToolsEnabled = toolAccess !== "none";
+  const effectiveBrowserToolEnabled = agentToolsEnabled && browserToolEnabled;
 
   const activePiSessionId = piSessionIdOf(activeTab);
   const { goalRevision, goalAction, flushPendingGoal } = useGoalCommand(
@@ -451,9 +456,9 @@ export function ChatPane({
     activeTabId,
     modelId,
     thinkingLevel,
-    toolAccess: "full",
+    toolAccess,
     cwd,
-    browserToolEnabled,
+    browserToolEnabled: effectiveBrowserToolEnabled,
     browserBackend,
     onPiSessionIdChange: handlePiSessionIdAssigned,
     updateSession: updateTab,
@@ -472,6 +477,22 @@ export function ChatPane({
     tools.setComputerTab("status");
     tools.setComputerOpen(true);
   }, [tools]);
+  const toggleAgentTools = useCallback(() => {
+    if (!activeTab || running || !modelSupportsTools) return;
+    if (agentToolsEnabled && browserToolEnabled) onToggleBrowserTool();
+    updateTab(activeTab.id, (session) => ({
+      ...session,
+      toolAccess: agentToolsEnabled ? "none" : "full",
+    }));
+  }, [
+    activeTab,
+    agentToolsEnabled,
+    browserToolEnabled,
+    modelSupportsTools,
+    onToggleBrowserTool,
+    running,
+    updateTab,
+  ]);
   const [diffDrawerOpen, setDiffDrawerOpen] = useState(false);
   const openDiffDrawer = useCallback(() => setDiffDrawerOpen(true), []);
   const closeDiffDrawer = useCallback(() => setDiffDrawerOpen(false), []);
@@ -581,7 +602,7 @@ export function ChatPane({
     useChatPaneSendFlow({
       activeTab,
       attachments,
-      browserToolEnabled,
+      browserToolEnabled: effectiveBrowserToolEnabled,
       clearAttachments,
       cwd,
       engine,
@@ -638,14 +659,7 @@ export function ChatPane({
       }
       void sendMessage(event);
     },
-    [
-      activeTab,
-      commandContext,
-      commandRegistry,
-      goalModeApi,
-      runCommandInvocation,
-      sendMessage,
-    ],
+    [activeTab, commandContext, commandRegistry, goalModeApi, runCommandInvocation, sendMessage],
   );
   const loadEarlierHistory = useCallback(
     () => (activeTabId ? engine.loadEarlier(activeTabId) : Promise.resolve()),
@@ -716,9 +730,11 @@ export function ChatPane({
         ) : null}
         {subagentChipsFor(activePiSessionId)}
         <AgentComposerFrame
+          agentToolsEnabled={agentToolsEnabled}
+          agentToolsSupported={modelSupportsTools}
           attachments={attachments}
           banner={composerVisual.banner}
-          browserToolEnabled={browserToolEnabled}
+          browserToolEnabled={effectiveBrowserToolEnabled}
           browserBackend={browserBackend}
           composerDragActive={composerDragActive}
           contextWindow={effectiveContextWindow}
@@ -755,6 +771,7 @@ export function ChatPane({
           onSelectMention={(entry) => void handleSelectMention(entry)}
           onSteerQueued={(queueId) => void steerQueued(queueId)}
           onSubmit={handleComposerSubmit}
+          onToggleAgentTools={toggleAgentTools}
           onToggleBrowserBackend={onToggleBrowserBackend}
           onToggleBrowserTool={onToggleBrowserTool}
           placeholder={goalModeApi.goalPlaceholder ?? composerVisual.placeholder}

@@ -279,6 +279,7 @@ function reduceSessionHeaderEvent(
           ? event.modelId
           : null;
     if (!modelId || session.modelId === modelId) return session;
+    if (session.modelId?.endsWith(`/${modelId}`)) return session;
     return { ...session, modelId };
   }
   return null;

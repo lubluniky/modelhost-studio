@@ -2,7 +2,7 @@
 
 import type { ReactNode, RefObject } from "react";
 import { Spinner } from "@/ui";
-import { ArrowUp, Plus } from "@/ui/icon-registry";
+import { ArrowUp, Plus, Wrench } from "@/ui/icon-registry";
 import type { BrowserBackend } from "@/features/agent/tools/types";
 import { GlobeIcon, PanelIcon, SitegeistIcon, StopIcon } from "@/ui/icons";
 
@@ -14,10 +14,13 @@ export function AgentComposerActions({
   status,
   input,
   attachmentsCount,
+  agentToolsEnabled,
+  agentToolsSupported,
   browserToolEnabled,
   browserBackend,
   onToggleBrowserBackend,
   onToggleBrowserTool,
+  onToggleAgentTools,
   onAbortTurn,
   modelSelector,
 }: {
@@ -28,10 +31,13 @@ export function AgentComposerActions({
   status?: string;
   input: string;
   attachmentsCount: number;
+  agentToolsEnabled: boolean;
+  agentToolsSupported: boolean;
   browserToolEnabled: boolean;
   browserBackend: BrowserBackend;
   onToggleBrowserBackend: () => void;
   onToggleBrowserTool: () => void;
+  onToggleAgentTools: () => void;
   onAbortTurn: () => void;
   modelSelector?: ReactNode;
 }) {
@@ -65,7 +71,25 @@ export function AgentComposerActions({
       </button>
       <button
         type="button"
+        onClick={onToggleAgentTools}
+        disabled={!agentToolsSupported || running}
+        aria-pressed={agentToolsEnabled}
+        aria-label="Agent tools"
+        title={
+          !agentToolsSupported
+            ? "Agent tools are unavailable for this model"
+            : agentToolsEnabled
+              ? "Agent tools: ON — click for plain chat without tools"
+              : "Agent tools: OFF — messages are sent as plain chat"
+        }
+        className={`composer-action-optional inline-flex !h-7 !min-h-7 !w-7 !min-w-7 shrink-0 items-center justify-center rounded-full disabled:opacity-30 ${agentToolsEnabled ? activeIconClass : inactiveIconClass}`}
+      >
+        <Wrench className="h-4 w-4" strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
         onClick={onToggleBrowserTool}
+        disabled={!agentToolsEnabled}
         aria-pressed={browserToolEnabled}
         aria-label="Browser tools"
         title={
@@ -73,7 +97,7 @@ export function AgentComposerActions({
             ? "Browser tool: ON — agent can drive the browser"
             : "Browser tool: OFF — click to let the agent navigate, click, fill, and read pages"
         }
-        className={`composer-action-optional inline-flex !h-7 !min-h-7 !w-7 !min-w-7 shrink-0 items-center justify-center rounded-full ${browserToolEnabled ? activeIconClass : inactiveIconClass}`}
+        className={`composer-action-optional inline-flex !h-7 !min-h-7 !w-7 !min-w-7 shrink-0 items-center justify-center rounded-full disabled:opacity-30 ${browserToolEnabled ? activeIconClass : inactiveIconClass}`}
       >
         <span className="relative inline-flex">
           <GlobeIcon className="h-4 w-4" />

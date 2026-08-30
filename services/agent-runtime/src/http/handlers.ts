@@ -303,7 +303,7 @@ type CompactRequest = {
   sessionId?: string;
   modelId?: string;
   thinkingLevel?: AgentThinkingLevel;
-  toolAccess?: "read_only" | "full";
+  toolAccess?: "none" | "read_only" | "full";
   cwd?: string;
   piSessionId?: string | null;
   customInstructions?: string;
@@ -354,7 +354,10 @@ function compactRouteEffect(request: Request): Effect.Effect<Response, unknown> 
         try: () =>
           session.ensureStarted(modelId, cwd, piSessionId, {
             thinkingLevel: body.thinkingLevel,
-            toolAccess: body.toolAccess === "full" ? "full" : "read_only",
+            toolAccess:
+              body.toolAccess === "none" || body.toolAccess === "full"
+                ? body.toolAccess
+                : "read_only",
             browserToolEnabled: body.browserToolEnabled === true,
             browserSessionId:
               typeof body.browserSessionId === "string" ? body.browserSessionId.trim() : undefined,

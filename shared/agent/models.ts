@@ -1,5 +1,6 @@
 import {
   inferModelVision,
+  resolveModelToolCalling,
   resolveModelVision,
 } from "../../controller/contracts/model-capabilities";
 import type { AgentThinkingLevel } from "./agent-turn";
@@ -38,6 +39,7 @@ export interface AgentModel {
   maxTokens: number;
   reasoning: boolean;
   thinkingLevels?: AgentThinkingLevel[];
+  toolCalling?: boolean;
   vision: boolean;
   active: boolean;
 }
@@ -114,7 +116,9 @@ function resolveReasoning(
   metadata: Record<string, unknown>,
   id: string,
 ): boolean {
-  const explicitReasoning = metadata.reasoning ?? model.reasoning;
+  const capabilities = recordFromUnknown(metadata.capabilities);
+  const explicitReasoning =
+    metadata.reasoning ?? capabilities.reasoning ?? capabilities.thinking ?? model.reasoning;
   return typeof explicitReasoning === "boolean" ? explicitReasoning : inferReasoningSupport(id);
 }
 
@@ -133,6 +137,7 @@ export function normalizeOpenAIModel(model: OpenAIModelListItem): AgentModel {
     contextWindow,
     maxTokens,
     reasoning: resolveReasoning(model, metadata, id),
+    toolCalling: resolveModelToolCalling({ metadata }),
     vision: resolveModelVision({
       identifiers: [id],
       metadata,

@@ -9,6 +9,7 @@ import {
 } from "@/features/agent/tools/selection-persistence";
 import type { ComposerSkillRef } from "@/features/agent/composer-context";
 import { isAgentThinkingLevel } from "@/features/agent/contracts";
+import type { AgentToolAccess } from "@/features/agent/contracts";
 import type {
   PaneId,
   PaneState,
@@ -70,6 +71,10 @@ type PersistedTabShape = Partial<Session> & {
   runtimeSessionId?: unknown;
 };
 
+function persistedToolAccess(value: unknown): AgentToolAccess | undefined {
+  return value === "none" || value === "read_only" || value === "full" ? value : undefined;
+}
+
 export type PersistedSessionMeta = Omit<
   Session,
   "messages" | "error" | "status" | "activeAssistantId" | "input"
@@ -93,6 +98,7 @@ export function normalizePersistedTab(value: unknown): Session | null {
     error: "",
     startedAt: typeof tab.startedAt === "string" ? tab.startedAt : undefined,
     thinkingLevel: isAgentThinkingLevel(tab.thinkingLevel) ? tab.thinkingLevel : undefined,
+    toolAccess: persistedToolAccess(tab.toolAccess),
     input: typeof tab.input === "string" ? tab.input : "",
     queue: Array.isArray(tab.queue) ? tab.queue : undefined,
     activeAssistantId: undefined,
@@ -229,6 +235,7 @@ export function sessionMetaForPersistence(
     cwd: tab.cwd,
     modelId: tab.modelId,
     thinkingLevel: tab.thinkingLevel,
+    toolAccess: tab.toolAccess,
     title: cleanSessionTitle(tab.title) || "New session",
     startedAt: tab.startedAt,
     tokenStats: tab.tokenStats,

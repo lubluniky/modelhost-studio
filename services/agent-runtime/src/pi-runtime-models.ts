@@ -16,6 +16,7 @@ import { resolveModelVision } from "../../../controller/contracts/model-capabili
 
 const PROVIDER_ID = "local-studio";
 const USER_PI_PREFIX = "user-pi-";
+const PI_CONTEXT_SAFETY_TOKENS = 4096;
 
 function userPiModelsPath(): string {
   const agentDir = process.env["PI_CODING_AGENT_DIR"]?.trim();
@@ -454,6 +455,13 @@ function isInklingReasoningModel(model: AgentModel): boolean {
   return model.reasoning && id.includes("inkling");
 }
 
+function piContextWindow(model: AgentModel): number {
+  if (!isControllerBackedModel(model)) return model.contextWindow;
+  return model.contextWindow <= PI_CONTEXT_SAFETY_TOKENS
+    ? model.contextWindow + PI_CONTEXT_SAFETY_TOKENS
+    : model.contextWindow;
+}
+
 const VLLM_OPENAI_COMPAT: OpenAICompletionsCompat = {
   supportsStore: false,
   supportsDeveloperRole: false,
@@ -464,7 +472,7 @@ const VLLM_OPENAI_COMPAT: OpenAICompletionsCompat = {
 };
 
 const CONTROLLER_THINKING_LEVEL_MAP = {
-  off: "off",
+  off: "none",
   minimal: "auto",
   low: "low",
   medium: "medium",
@@ -489,7 +497,7 @@ export function modelsToPiModels(models: AgentModel[]) {
       active: model.active,
       reasoning: model.reasoning,
       input: model.vision ? ["text", "image"] : ["text"],
-      contextWindow: model.contextWindow,
+      contextWindow: piContextWindow(model),
       maxTokens: model.maxTokens,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       ...(model.controllerUrl && model.reasoning

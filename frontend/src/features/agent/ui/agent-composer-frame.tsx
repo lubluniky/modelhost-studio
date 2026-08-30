@@ -35,6 +35,8 @@ import { Target } from "@/ui/icon-registry";
 import { CloseIcon } from "@/ui/icons";
 
 export type AgentComposerFrameProps = {
+  agentToolsEnabled: boolean;
+  agentToolsSupported: boolean;
   attachments: AgentComposerAttachment[];
   banner: ComposerBanner | null;
   browserToolEnabled: boolean;
@@ -71,6 +73,7 @@ export type AgentComposerFrameProps = {
   onSelectMention: (entry: MentionRow) => void;
   onSteerQueued: (queueId: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
+  onToggleAgentTools: () => void;
   onToggleBrowserBackend: () => void;
   onToggleBrowserTool: () => void;
   placeholder: string;
@@ -91,6 +94,8 @@ export type AgentComposerFrameProps = {
 };
 
 export function AgentComposerFrame({
+  agentToolsEnabled,
+  agentToolsSupported,
   attachments,
   banner,
   browserToolEnabled,
@@ -127,6 +132,7 @@ export function AgentComposerFrame({
   onSelectMention,
   onSteerQueued,
   onSubmit,
+  onToggleAgentTools,
   onToggleBrowserBackend,
   onToggleBrowserTool,
   placeholder,
@@ -233,10 +239,13 @@ export function AgentComposerFrame({
           status={status}
           input={input}
           attachmentsCount={attachments.length}
+          agentToolsEnabled={agentToolsEnabled}
+          agentToolsSupported={agentToolsSupported}
           browserToolEnabled={browserToolEnabled}
           browserBackend={browserBackend}
           onToggleBrowserBackend={onToggleBrowserBackend}
           onToggleBrowserTool={onToggleBrowserTool}
+          onToggleAgentTools={onToggleAgentTools}
           onAbortTurn={onAbortTurn}
           modelSelector={modelSelector}
         />

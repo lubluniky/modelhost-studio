@@ -11,6 +11,7 @@ import {
   type AgentSessionEvent,
   type AgentSessionRuntime,
   type ExtensionUIContext,
+  type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import type { AgentImageInput } from "../../../shared/agent/agent-image-input";
@@ -43,6 +44,26 @@ import type {
 } from "./pi-runtime-types";
 
 type PiEvent = LoggedPiEvent["event"];
+
+function applySmallContextSettings(
+  settingsManager: SettingsManager,
+  contextWindow: number,
+  runtimeContextWindow: number,
+): void {
+  const current = settingsManager.getCompactionSettings();
+  if (contextWindow > current.reserveTokens) return;
+  const reserveTokens = Math.max(512, Math.floor(contextWindow * 0.25));
+  const compatibilityReserve = Math.max(0, runtimeContextWindow - contextWindow);
+  const keepRecentTokens = Math.max(512, contextWindow - reserveTokens - 512);
+  settingsManager.applyOverrides({
+    compaction: {
+      enabled: current.enabled,
+      reserveTokens: compatibilityReserve + reserveTokens,
+      keepRecentTokens: Math.min(current.keepRecentTokens, keepRecentTokens),
+    },
+    branchSummary: { reserveTokens },
+  });
+}
 
 function comparableQueuedText(text: string): string {
   const marker = "\n\nUser prompt:\n";
@@ -194,6 +215,7 @@ class PiSdkSession extends EventEmitter implements PiAgentSession {
   private currentPiSessionId: string | null = null;
   private currentCwd = "";
   private currentModelId = "";
+  private currentContextWindow = 0;
   private currentStartOptions: RuntimeStartOptions = {};
   private agentDir = "";
   private queueEventBufferDepth = 0;
@@ -246,6 +268,7 @@ class PiSdkSession extends EventEmitter implements PiAgentSession {
             new Error(`Model '${modelId}' is not available from /v1/models.`),
           );
         }
+        this.currentContextWindow = selectedModel.contextWindow;
         const resolvedSelection = resolvePiModelSelection(selectedModel.id);
         const providerId = selectedModel.providerId ?? resolvedSelection.providerId;
         const backendModelId = selectedModel.rawId ?? resolvedSelection.modelId;
@@ -338,10 +361,19 @@ class PiSdkSession extends EventEmitter implements PiAgentSession {
                         }),
                       catch: (error) => error,
                     });
+                    applySmallContextSettings(
+                      created.session.settingsManager,
+                      selectedModel.contextWindow,
+                      model.contextWindow,
+                    );
+                    const toolAccess =
+                      selectedModel.toolCalling === false ? "none" : options.toolAccess;
                     const activeToolNames =
-                      options.toolAccess === "read_only"
-                        ? ["read", "grep", "find", "ls"]
-                        : created.session.getAllTools().map((tool) => tool.name);
+                      toolAccess === "none"
+                        ? []
+                        : toolAccess === "read_only"
+                          ? ["read", "grep", "find", "ls"]
+                          : created.session.getAllTools().map((tool) => tool.name);
                     created.session.setActiveToolsByName(activeToolNames);
                     yield* Effect.tryPromise({
                       try: () =>
@@ -632,12 +664,13 @@ class PiSdkSession extends EventEmitter implements PiAgentSession {
     if (!usage) return null;
     const settings = session.settingsManager.getCompactionSettings();
     const tokens = typeof usage.tokens === "number" ? usage.tokens : null;
+    const contextWindow = this.currentContextWindow || usage.contextWindow;
     return {
       tokens,
-      contextWindow: usage.contextWindow,
-      percent: typeof usage.percent === "number" ? usage.percent : null,
+      contextWindow,
+      percent: tokens !== null && contextWindow > 0 ? (tokens / contextWindow) * 100 : null,
       shouldCompact:
-        tokens !== null && usage.contextWindow > 0
+        tokens !== null && contextWindow > 0
           ? shouldCompact(tokens, usage.contextWindow, settings)
           : false,
     };
