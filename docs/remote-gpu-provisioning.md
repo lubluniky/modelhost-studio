@@ -167,7 +167,7 @@ Excluded from this MVP:
 
 ## Provider integration
 
-Vast uses the official REST API. Offers come from `POST https://console.vast.ai/api/v0/bundles/`, creation accepts an offer with `PUT /api/v0/asks/{offerId}/`, instance state comes from `GET /api/v0/instances/{id}/`, and teardown uses `DELETE /api/v0/instances/{id}/`. The request starts the selected vLLM image directly and opens only the inference port. Vast maps that internal port to a random external TCP port, which the adapter resolves from instance data.
+Vast uses the official REST API. Offers come from `POST https://console.vast.ai/api/v0/bundles/`, creation accepts an offer with `PUT /api/v0/asks/{offerId}/`, instance state comes from `GET /api/v0/instances/{id}/`, and teardown uses `DELETE /api/v0/instances/{id}/`. Search requires verified, rentable, single-GPU capacity with enough VRAM, at least one direct port, and CUDA compute capability 8.0 or newer. This removes P40, V100, and other pre-Ampere offers before they reach the compatible list. The request starts the selected vLLM image directly and opens only the inference port. Vast maps that internal port to a random external TCP port, which the adapter resolves from instance data.
 
 RunPod uses the official GraphQL GPU catalog for memory, price, stock, and compatible GPU counts. Pod lifecycle uses `https://rest.runpod.io/v1/pods`. The vLLM port is exposed as an HTTP service and resolves to `https://{podId}-8000.proxy.runpod.net`.
 
@@ -192,7 +192,7 @@ Controller environment variables remain fallback inputs for unattended setups:
 - `LOCAL_STUDIO_RUNPOD_API_KEY`
 - `LOCAL_STUDIO_HF_TOKEN`, with the existing `HF_TOKEN` and `HUGGINGFACE_TOKEN` fallbacks
 
-Settings values take precedence over environment fallbacks. Removing a Settings value reveals the corresponding environment fallback when one exists. The generated inference key is stored only in the controller's mode-0600 provider config, never in the deployment view or browser response. The managed provider record includes the owning deployment id so reconciliation and teardown can repair both sides.
+Settings values take precedence over environment fallbacks. Removing a Settings value reveals the corresponding environment fallback when one exists. The generated inference key is stored only in the controller's mode-0600 provider config, never in the deployment view or browser response. Remote vLLM receives the same value through `VLLM_API_KEY`; it is not included in the process command line or vLLM's startup argument summary. The managed provider record includes the owning deployment id so reconciliation and teardown can repair both sides.
 
 On controller startup, reconciliation runs before the periodic supervisor:
 
