@@ -26,7 +26,7 @@ flowchart LR
   Reconcile --> RunPod
 ```
 
-The fork has no `origin/dev` after a fresh fetch on 2026-08-29. The feature branch therefore starts at the fork's only remote head, `origin/main` at `6ff4ef9`.
+The fork remote named `origin` does not publish a `dev` branch. The repository also tracks the source repository as `upstream`; this feature branch starts from `upstream/dev` at `fbc1278c`, which is its merge base with the current branch.
 
 ## Contracts
 
@@ -136,13 +136,16 @@ Existing files changed:
 - `controller/src/config/persisted-config.ts`: mark generated provider routes as deployment-managed.
 - `controller/src/modules/compute/contracts.ts` and `controller/src/modules/compute/engines/shared.ts`: allow a container launch plan to use a registry model id instead of a local mount. Local plans remain unchanged.
 - `controller/src/modules/studio/provider-routes.ts`: use the shared provider-config mutation service.
+- `controller/src/services/provider-routing.ts`: share cached provider model discovery with the model catalogue.
 - `controller/src/app-context.ts`: acquire the deployment store and service.
 - `controller/src/main.ts`: run startup reconciliation and the remote supervisor.
 - `controller/src/http/app.ts`: register remote deployment routes.
 - `controller/contracts/controller-events.ts`: add `remote_deployment_updated` to the existing SSE stream.
+- `controller/contracts/model-capabilities.ts` and `controller/src/modules/models/routes.ts`: expose the managed remote model's context, reasoning, vision, and tool-calling capabilities through the existing model catalogue.
 - `frontend/src/lib/api/create-api-client.ts` and `frontend/src/lib/types.ts`: expose the new shared contract and API.
 - `frontend/src/features/recipes/recipes-content/recipe-row.tsx`, `recipes-table.tsx`, `types.ts`, `recipes-content-model.ts`, and `recipes-content-view.tsx`: add the "Deploy remote" entry and mount the drawer.
-- `controller.md`: document the final routes and lifecycle after implementation.
+- `shared/agent/agent-turn.ts`, `shared/agent/models.ts`, and the coupled agent-runtime and composer files: carry a `none` tool-access mode, keep the qualified provider model id selected, derive reasoning and tool support from model metadata, and compact safely for a 4096-token recipe context.
+- `.env.example`: document the controller-only credential fallbacks.
 
 ## MVP scope
 
@@ -248,7 +251,7 @@ The repository policy forbids adding automated test files. A one-off in-memory p
 8. external instance disappearance;
 9. browser payload omission of provider keys, inference keys, and recipe environment values.
 
-The 2026-08-30 completion audit passed all nine scenarios. The lifecycle probe uses the real `RemoteDeploymentService`, provider-route persistence, and public deployment view with in-memory provider and deployment-store boundaries. A separate provider probe decodes representative Vast and RunPod API payloads through the real adapters, including nullable RunPod catalog fields.
+The 2026-08-31 completion audit passed all nine scenarios on the current branch. The lifecycle probe uses the real `RemoteDeploymentService`, provider-route persistence, and public deployment view with in-memory provider and deployment-store boundaries. The probe replaces only remote bootstrap plan construction to avoid the controller's unrelated direct-module initialization cycle. Its provider checks decode representative Vast and RunPod API payloads through the real adapters, including nullable RunPod catalog fields.
 
 The visible UI path is checked against an isolated local controller: Models → Your servers → Server actions → Deploy remote. The no-credential state renders both providers, keeps external actions disabled, and produces no browser console errors.
 
@@ -271,13 +274,16 @@ RunPod completed the paid UI-to-inference-to-destroy path on 2026-08-30 with an 
 
 The recipe did not configure a vLLM tool-call parser. Its model metadata therefore advertises tool calling as unavailable, and Local Studio sends an empty tool set for that deployment instead of allowing vLLM to reject `tool_choice: "auto"`. Reasoning remains available through the derived `qwen3` reasoning parser.
 
-Vast live acceptance is still pending. The configured account had no balance, so no Vast instance was created and no cost was incurred.
+Vast live acceptance did not reach inference. With explicit approval to incur cost, two attempts using the original `sheppo/Qwen3.8-27B-Heretic-Abliterated-W4A16-A100` checkpoint reached provider-running state but never exposed a healthy vLLM endpoint; the controller cleaned up both instances. That checkpoint documents an A100-specific runtime path, but provider logs were not collected, so the exact runtime failure remains unconfirmed.
+
+A third attempt used an RTX 3090 offer and the RTX 3090-qualified `desva0/Qwen3.8-27B-Uncensored-W4A16` checkpoint. It remained in provider provisioning and never reached bootstrap or inference. The user destroyed it through the Local Studio UI; `DELETE /remote-deployments/{deploymentId}` returned HTTP 200 and the deployment reached `destroyed`. No Vast instance from these checks remains active.
 
 ## Known limitations
 
-- RunPod has completed live UI-to-inference-to-destroy acceptance. Vast still requires a funded account and explicit approval to incur cost.
+- RunPod has completed live UI-to-inference-to-destroy acceptance. Vast creation and teardown have been exercised, but Vast has not completed the UI-to-inference path.
 - RunPod uses its provider HTTPS proxy. Vast exposes the mapped vLLM port directly as `http://{publicIp}:{mappedPort}`. It is protected by a generated high-entropy bearer key, but this Vast MVP path does not provide provider-native TLS.
-- VRAM compatibility is an estimate based on known weight bytes plus 25 percent headroom. Long contexts, model architecture, quantization behavior, and KV cache demand can still make an apparently compatible GPU fail readiness.
+- VRAM compatibility is an estimate based on known weight bytes plus 25 percent headroom. It does not encode model-specific GPU architecture, CUDA kernel, patched runtime, or image requirements. Long contexts, quantization behavior, and KV cache demand can also make an apparently compatible offer fail readiness.
+- A provider may remain in provisioning without assigning a reachable endpoint. The controller keeps the route disabled and the UI exposes Destroy, but the MVP does not choose a replacement offer or migrate the deployment automatically.
 - Price and availability are snapshots. There is no budget cap, automatic maximum price, reservation, or spend approval workflow.
 - The default engine image follows the existing vLLM image selection and may use a moving tag. Pin a recipe-selected vLLM image tag when immutable image reproduction is required.
 - Recipe environment variables are sent to the selected provider because they are part of the launch contract. The UI reports only their count and never their names or values.
