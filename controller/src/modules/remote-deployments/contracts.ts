@@ -70,14 +70,15 @@ export interface RemoteInstanceSpec {
   readonly container: RemoteContainerSpec;
 }
 
+export interface RemoteConnectionInfo {
+  readonly baseUrl: string;
+}
+
 export interface RemoteProviderInstance {
   readonly id: string;
   readonly state: RemoteProviderInstanceState;
   readonly message: string | null;
-}
-
-export interface RemoteConnectionInfo {
-  readonly baseUrl: string;
+  readonly connection: RemoteConnectionInfo | null;
 }
 
 export interface RemoteComputeProvider {
@@ -91,9 +92,6 @@ export interface RemoteComputeProvider {
   readonly getInstance: (
     id: string,
   ) => Effect.Effect<RemoteProviderInstance | null, RemoteDeploymentFailure>;
-  readonly getConnectionInfo: (
-    instance: RemoteProviderInstance,
-  ) => Effect.Effect<RemoteConnectionInfo | null, RemoteDeploymentFailure>;
   readonly destroyInstance: (id: string) => Effect.Effect<void, RemoteDeploymentFailure>;
 }
 

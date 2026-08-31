@@ -5,7 +5,6 @@ import type {
 } from "@local-studio/contracts/remote-deployments";
 import type {
   RemoteComputeProvider,
-  RemoteConnectionInfo,
   RemoteInstanceSpec,
   RemoteProviderInstance,
   RemoteProviderInstanceState,
@@ -137,16 +136,24 @@ const instanceState = (status: string | null | undefined): RemoteProviderInstanc
   return "unknown";
 };
 
-const normalizeInstance = (instance: VastInstance): RemoteProviderInstance => ({
-  id: String(instance.id),
-  state: instanceState(instance.actual_status),
-  message: instance.status_msg ?? null,
-});
-
 const mappedPort = (ports: VastInstance["ports"]): string | null => {
   if (!ports || Array.isArray(ports)) return null;
   const bindings = ports as Readonly<Record<string, readonly { readonly HostPort: string }[]>>;
   return bindings[VAST_PORT]?.[0]?.HostPort ?? null;
+};
+
+const normalizeInstance = (instance: VastInstance): RemoteProviderInstance => {
+  const state = instanceState(instance.actual_status);
+  const port = mappedPort(instance.ports);
+  return {
+    id: String(instance.id),
+    state,
+    message: instance.status_msg ?? null,
+    connection:
+      state === "running" && instance.public_ipaddr && port
+        ? { baseUrl: `http://${instance.public_ipaddr}:${port}` }
+        : null,
+  };
 };
 
 export const makeVastProvider = (
@@ -236,7 +243,12 @@ export const makeVastProvider = (
       }
       const payload = yield* providerJson("vast", "vast.create-instance", response);
       const created = yield* decode(VastCreateResponseSchema, "vast.create-instance", payload);
-      return { id: String(created.new_contract), state: "provisioning", message: null };
+      return {
+        id: String(created.new_contract),
+        state: "provisioning",
+        message: null,
+        connection: null,
+      };
     });
 
   const getRawInstance = (
@@ -263,18 +275,6 @@ export const makeVastProvider = (
     createInstance,
     getInstance: (id) =>
       getRawInstance(id).pipe(Effect.map((value) => value && normalizeInstance(value))),
-    getConnectionInfo: (
-      instance,
-    ): Effect.Effect<RemoteConnectionInfo | null, RemoteDeploymentFailure> =>
-      getRawInstance(instance.id).pipe(
-        Effect.map((value) => {
-          if (!value || instanceState(value.actual_status) !== "running") return null;
-          const port = mappedPort(value.ports);
-          return value.public_ipaddr && port
-            ? { baseUrl: `http://${value.public_ipaddr}:${port}` }
-            : null;
-        }),
-      ),
     destroyInstance: (id) =>
       providerRequest({
         provider: "vast",

@@ -445,7 +445,7 @@ export class RemoteDeploymentService {
           }),
         );
       }
-      const connection = yield* provider.getConnectionInfo(instance);
+      const connection = instance.connection;
       if (!connection) {
         if (deadlineExpired) {
           return remoteDeploymentView(

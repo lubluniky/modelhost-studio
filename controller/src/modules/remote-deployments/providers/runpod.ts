@@ -112,11 +112,16 @@ const podState = (status: string | undefined): RemoteProviderInstanceState => {
   return "provisioning";
 };
 
-const normalizePod = (pod: Schema.Schema.Type<typeof RunPodPodSchema>): RemoteProviderInstance => ({
-  id: pod.id,
-  state: podState(pod.desiredStatus),
-  message: pod.lastStatusChange ?? null,
-});
+const normalizePod = (pod: Schema.Schema.Type<typeof RunPodPodSchema>): RemoteProviderInstance => {
+  const state = podState(pod.desiredStatus);
+  return {
+    id: pod.id,
+    state,
+    message: pod.lastStatusChange ?? null,
+    connection:
+      state === "running" ? { baseUrl: `https://${pod.id}-8000.proxy.runpod.net` } : null,
+  };
+};
 
 const parseOfferId = (id: string): { cloud: "SECURE" | "COMMUNITY"; gpuTypeId: string } | null => {
   const separator = id.indexOf(":");
@@ -245,12 +250,6 @@ export const makeRunPodProvider = (
         return normalizePod(yield* decode(RunPodPodSchema, "runpod.create-pod", payload));
       }),
     getInstance,
-    getConnectionInfo: (instance) =>
-      Effect.succeed(
-        instance.state === "running"
-          ? { baseUrl: `https://${instance.id}-8000.proxy.runpod.net` }
-          : null,
-      ),
     destroyInstance: (id) =>
       providerRequest({
         provider: "runpod",
