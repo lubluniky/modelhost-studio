@@ -1,276 +1,304 @@
-# Local Studio
+# ModelHost Studio
 
-Local Studio is a local-first workstation for running, managing, and using
-self-hosted LLM backends. One machine can launch models, watch GPU/runtime
-state, chat with OpenAI-compatible endpoints, and run agent sessions against
-local or remote controllers. Version 2.0 unifies day-to-day operation around
-Status, Workbench, Configure, and Usage instead of separate model, integration,
-and server surfaces.
+ModelHost Studio is a local-first control plane for running language models on
+your own hardware or on a rented GPU. It combines model setup, runtime state,
+OpenAI-compatible inference, an agent workbench, usage data, and remote GPU
+lifecycle management in one controller and UI.
 
-## Download
+This repository is a fork of
+[Local Studio](https://github.com/sybil-solutions/local-studio). The fork keeps
+the upstream package names and `LOCAL_STUDIO_*` configuration namespace for
+compatibility while it develops the ModelHost Studio product direction.
 
-**[Download Local Studio for macOS (Apple Silicon)](https://github.com/sybil-solutions/local-studio/releases/latest/download/Local-Studio-arm64.dmg)**
-— signed and notarized; updates itself from GitHub releases. All versions on the
-[releases page](https://github.com/sybil-solutions/local-studio/releases), or via
-[localstudio.ai](https://localstudio.ai).
+## What it does
 
-It is built from two modules that share one controller API:
+- Downloads and serves model recipes through vLLM, SGLang, llama.cpp, or MLX.
+- Shows model, runtime, GPU, logs, usage, and health state in one web interface.
+- Exposes the active models through an OpenAI-compatible controller API.
+- Runs Pi-based chat and agent sessions against local or connected models.
+- Provisions authenticated vLLM servers on RunPod and Vast.ai from the Models UI.
+- Stores remote provider credentials in the controller instead of returning
+  them to the browser.
 
-- [`controller/`](controller/README.md) — Bun/Hono backend. Owns model lifecycle
-  (launch, evict, recipes, downloads, runtime process coordination), an
-  OpenAI-compatible proxy (chat, models, tokenization, audio), system state
-  (GPU metrics, logs, usage, settings, SSE), and controller integrations.
-- [`frontend/`](frontend/README.md) — Next.js 16 + React 19 UI and the macOS
-  Electron desktop shell. Hosts the Workbench (`/agent`), consolidated
-  Configure surface, settings, usage, logs, and browser-facing API routes.
+The same controller owns local model lifecycle and remote provider routes. A
+remote model becomes available to the normal chat and API paths only after the
+controller authenticates its health and model-list endpoints.
 
-## Mobile companion
+## Serving options
 
-[KittyLitter](https://kittylitter.app) connects to Local Studio so the same
-agent sessions, streaming content, reasoning, tool calls, and tool results are
-available on iPhone, iPad, and Android. Pair from **Settings → Profile & phone →
-Connect your phone**. The QR code and copied connection JSON are private
-controller credentials; share them only with a device you trust.
+| Target            | Backends                | Hardware                | Lifecycle                           |
+| ----------------- | ----------------------- | ----------------------- | ----------------------------------- |
+| Apple Silicon     | MLX, llama.cpp          | Local unified memory    | Managed locally                     |
+| Linux workstation | vLLM, SGLang, llama.cpp | Local NVIDIA GPU or CPU | Managed locally                     |
+| RunPod            | vLLM                    | One rented NVIDIA GPU   | Provisioned and destroyed in the UI |
+| Vast.ai           | vLLM                    | One rented NVIDIA GPU   | Provisioned and destroyed in the UI |
 
-See the complete pairing, version, and security guide at
-[localstudio.ai/mobile](https://localstudio.ai/mobile). Mobile pairing requires
-Local Studio 2.9.0 or newer and KittyLitter 1.6.0 or newer.
+Remote deployment is intentionally narrow. The current MVP accepts Hugging
+Face model IDs, estimates required VRAM from model weight size plus runtime
+headroom, and lists compatible on-demand offers. It does not support remote
+SGLang, AMD, multi-GPU inference, serverless endpoints, network volumes, or
+automatic failover.
 
-## What is a controller?
+## Remote GPU flow
 
-A controller is the backend process the UI talks to — the Bun/Hono
-server in `controller/`. You can run one locally or point the frontend at a
-remote controller on a GPU host. The controller owns model lifecycle, the
-OpenAI-compatible proxy, system state, and SSE event streams.
+1. Create or save a vLLM recipe whose model source resolves to a Hugging Face
+   repository.
+2. Add a RunPod or Vast.ai API key under **Settings > Remote compute**. Add a
+   Hugging Face token only for a private or gated repository.
+3. Open **Models > Your servers**, open the recipe actions, and choose
+   **Deploy remote**.
+4. Compare compatible offers by GPU, memory, availability, and hourly price.
+5. Deploy one offer. The controller creates the instance, starts an
+   authenticated vLLM server, and waits for readiness.
+6. Use the qualified model ID shown by the deployment, for example
+   `remote-runpod-{deploymentId}/{model}`.
+7. Select **Destroy** when finished. The provider route is removed, while the
+   terminal deployment record remains available for audit history.
+
+Creating a deployment starts a billable provider instance. Looking up offers
+does not. Prices and availability are snapshots, and the MVP has no automatic
+budget cap. Always destroy an instance when the test is complete.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    User["User"] --> Desktop["Electron desktop app"]
-    User --> Web["Next.js web UI"]
-    Desktop --> Frontend["Frontend server / API routes"]
-    Web --> Frontend
-    Frontend --> Controller["Controller API (Bun + Hono)"]
+    User["Browser or desktop UI"] --> Frontend["Next.js frontend"]
+    Client["OpenAI-compatible client"] --> Controller["Bun and Hono controller"]
+    Frontend --> Controller
+    Frontend --> Agent["Pi agent runtime"]
+    Agent --> Controller
 
-    Controller --> Runtime["Inference runtime process"]
-    Runtime --> Backends["vLLM / SGLang / llama.cpp / MLX recipes"]
-    Controller --> Data["Local data directory"]
-    Controller --> Events["SSE status and runtime events"]
-    Frontend --> Agent["Pi coding agent runtime"]
+    Controller --> Local["Local runtime"]
+    Local --> Engines["vLLM, SGLang, llama.cpp, MLX"]
+
+    Controller --> Remote["Remote deployment service"]
+    Remote --> Providers["RunPod or Vast.ai"]
+    Providers --> VLLM["Authenticated remote vLLM"]
+    VLLM --> Routes["Existing provider routing"]
+    Routes --> Controller
+
+    Controller --> Data["SQLite, recipes, settings, usage"]
+    Controller --> Events["SSE lifecycle and health events"]
 ```
 
-```mermaid
-flowchart TB
-    subgraph Frontend["frontend/"]
-        AgentPage["/agent"]
-        Configure["/configure"]
-        Settings["/settings"]
-        Usage["/usage"]
-        ProxyRoutes["/api/* proxy and agent routes"]
-        DesktopMain["desktop/ Electron shell"]
-    end
+The repository has two main application modules:
 
-    subgraph Controller["controller/"]
-        HttpApp["src/http/app.ts"]
-        Engines["src/modules/engines"]
-        Models["src/modules/models"]
-        Proxy["src/modules/proxy"]
-        Studio["src/modules/studio"]
-        System["src/modules/system"]
-        Audio["src/modules/audio"]
-        Stores["src/stores"]
-    end
+- [`controller/`](controller/README.md) contains the Bun/Hono API, local runtime
+  coordination, provider routing, remote deployment supervision, persistence,
+  usage, system state, and SSE events.
+- [`frontend/`](frontend/README.md) contains the Next.js UI, Electron shell,
+  agent workbench, controller proxy routes, and settings surfaces.
 
-    ProxyRoutes --> HttpApp
-    HttpApp --> Engines
-    HttpApp --> Models
-    HttpApp --> Proxy
-    HttpApp --> Studio
-    HttpApp --> System
-    HttpApp --> Audio
-    System --> Stores
-```
+Shared controller contracts live in `controller/contracts/`. Shared agent
+contracts live in `shared/agent/`. Remote deployment design, contracts, failure
+handling, and acceptance evidence are documented in
+[`docs/remote-gpu-provisioning.md`](docs/remote-gpu-provisioning.md).
 
-## Quick start
+## Quick start from source
 
-Prerequisites: Bun 1.3.14+, Node.js 22.19+, npm 10+, Python 3.10+, and Git.
-`uv` is strongly recommended; engine installs fall back to pip. vLLM/SGLang
-serving on Linux needs NVIDIA driver + CUDA; Apple Silicon uses the MLX backend.
+Prerequisites:
 
-Validate the toolchain, then install every locked workspace dependency from the
-repository root:
+- Bun 1.3.14 or newer
+- Node.js 22.19 or newer
+- npm 10 or newer
+- Python 3.10 or newer
+- Git
+- `uv` for managed Python runtime installation, recommended
+
+On Linux, vLLM and SGLang need a compatible NVIDIA driver and CUDA runtime.
+Apple Silicon uses MLX for native GPU inference.
+
+Install the locked workspace dependencies:
 
 ```bash
 npm run doctor
 npm run setup
 ```
 
-Start the controller (listens on `127.0.0.1:8080`, data dir + SQLite created
-automatically, model weights in `LOCAL_STUDIO_MODELS_DIR`, default `/models`):
+The controller defaults to `/models` on macOS and Linux. Set a writable models
+directory in the ignored root `.env.local` before the first launch:
 
-```bash
-npm run dev:controller
+```dotenv
+LOCAL_STUDIO_MODELS_DIR=/absolute/path/to/models
 ```
 
-Start the frontend in a second terminal, then open
-<http://localhost:3000/setup>:
+Start the controller:
 
 ```bash
-npm run dev
+cd controller
+bun run dev
 ```
 
-`npm run setup` installs the controller, shared contracts, agent runtime, and
-frontend from their lockfiles. The setup wizard walks through choosing a models
-directory, installing an engine, downloading a model, launching it, and
-benchmarking. Engine installs (vLLM/SGLang/MLX) land below the data directory at
-`runtime/venvs/<backend>-latest`.
+In a second terminal, start the frontend and agent runtime from the repository
+root:
 
-## Agent runtime
+```bash
+NEXT_DIST_DIR=.next-dev npm run dev
+```
 
-The agent surface lives at `/agent` in the frontend. It uses
-`@earendil-works/pi-coding-agent` through the frontend runtime rather than
-shelling out to a separate agent process for normal turns. Agent skills and
-extensions are discovered through Pi and surfaced in the session UI. Pi remains
-the source of truth for authentication, settings, resources, tools, and native
-JSONL sessions. The runtime respects `PI_CODING_AGENT_DIR`,
-`PI_CODING_AGENT_SESSION_DIR`, and Pi's `sessionDir` setting in the same
-precedence order as the CLI. Existing Local Studio session storage remains a
-read-compatible legacy source, while new sessions use Pi's resolved directory.
-Workbench sends only the active controller to Pi and shows that controller's
-advertised models by default. The model picker has an explicit Other models
-switch for models from the user's Pi catalog and providers connected in
-Configure. Those opt-in models use Pi's native provider routing without adding
-saved inactive controllers to the session.
+Open these local pages:
 
-New Workbench chats start with Pi's `read`, `grep`, `find`, and `ls` tools. Full
-access enables every tool registered in that Pi session, including extension
-tools. Read only is a model-tool allowlist, not an operating-system sandbox,
-and loaded extensions may still have their own behavior. Pi runs with the full
-permissions of the host user. Tailscale limits who can reach the dashboard; it
-does not sandbox Pi.
+- Models: <http://127.0.0.1:3000/models>
+- Agent workbench: <http://127.0.0.1:3000/agent>
+- Remote credentials: <http://127.0.0.1:3000/settings#remote>
+- Controller health: <http://127.0.0.1:8080/health>
+- Controller API reference: <http://127.0.0.1:8080/api/docs>
 
-## Runtime backends
+The setup wizard can install a local engine, download a model, save a server
+recipe, launch it, and benchmark it. Engine environments are stored below the
+controller data directory in `runtime/venvs/`.
 
-Recipes launch through the controller runtime layer. Wired backend families:
+## Use the API
 
-- `vllm` — vLLM server recipes through configured/discovered/system/Docker/bundled targets.
-- `sglang` — SGLang `launch-server` recipes through configured or discovered Python targets.
-- `llamacpp` — llama.cpp `llama-server` recipes for GGUF models.
-- `mlx` — MLX `mlx_lm.server` recipes for Apple Silicon.
+List every model currently routed by the controller:
 
-Runtime target discovery, models, integrations, and server controls are
-surfaced in Configure; selections persist in the controller data directory.
+```bash
+curl http://127.0.0.1:8080/v1/models
+```
 
-## Production
+Send a chat completion after replacing `model-id` with an ID returned by that
+endpoint:
 
-Build the frontend, then serve the controller and standalone frontend in separate
-terminals:
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "model-id",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true
+  }'
+```
+
+If the controller has an API key, add an `Authorization: Bearer ...` header
+without storing the value in scripts, shell history, or source control.
+
+## Agent workbench
+
+The `/agent` surface uses `@earendil-works/pi-coding-agent`. It keeps the full
+qualified provider model ID selected, so a remote deployment is not silently
+replaced with an unqualified local model.
+
+The model picker derives capabilities from controller metadata:
+
+- Reasoning controls appear only for models that advertise reasoning support.
+- The **Agent tools** switch can send a plain chat turn with an empty tool set.
+- Models without tool-call support always use the empty tool set. This avoids
+  sending vLLM `tool_choice: "auto"` when no tool-call parser is configured.
+- Context limits come from the selected model. Small-context sessions compact
+  before a request can overrun the model window.
+- Vision input appears only when the selected model advertises image support.
+
+Agent tools run with the permissions of the host user. Tool access is an agent
+policy, not an operating-system sandbox.
+
+## Credentials and network safety
+
+Remote provider keys can be saved or rotated under **Settings > Remote
+compute**. They are stored in the controller SQLite database with file mode
+`0600`. Credential values are never returned by the settings API; the browser
+receives only configured state and source.
+
+For unattended controllers, these environment variables remain available as
+fallbacks:
+
+- `LOCAL_STUDIO_VAST_API_KEY`
+- `LOCAL_STUDIO_RUNPOD_API_KEY`
+- `LOCAL_STUDIO_HF_TOKEN`
+
+Values saved in Settings take precedence. Keep `.env.local` ignored and never
+commit credentials.
+
+The controller binds to `127.0.0.1` by default. A non-loopback bind requires
+`LOCAL_STUDIO_API_KEY` unless the operator explicitly enables
+`LOCAL_STUDIO_ALLOW_UNAUTHENTICATED=true` on a trusted network. The frontend can
+target another controller through `BACKEND_URL` or `NEXT_PUBLIC_API_URL`.
+
+RunPod exposes the remote vLLM service through its HTTPS proxy. The current
+Vast.ai path uses an authenticated direct HTTP port. The generated bearer key
+protects inference, but the provider does not supply TLS for that direct path.
+
+## Remote acceptance status
+
+| Provider | Verified path                                                   | Current status                                                                 |
+| -------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| RunPod   | Settings to offer to provision to streamed inference to destroy | Passed with an RTX 3090 and Qwen3.8 27B Heretic W4A16 on 2026-08-30            |
+| Vast.ai  | Settings to offer to provision and destroy                      | Creation and cleanup passed; a healthy inference endpoint has not been reached |
+
+The controller-side nine-scenario contract probe passed on 2026-08-31. It
+covered offer filtering and provider normalization, failed provisioning
+cleanup, bootstrap failure, readiness timeout, explicit destroy, restart
+reconciliation, external instance disappearance, and omission of secrets from
+browser payloads.
+
+Vast.ai offer filtering excludes pre-Ampere GPUs and requires CUDA compute
+capability 8.0 or newer. A compatible VRAM estimate still cannot guarantee that
+a particular checkpoint, quantization, CUDA kernel, or container image will
+start successfully. See the remote provisioning document for the full failure
+model and live-run notes.
+
+## Production build
+
+Build the frontend and bundled agent runtime:
 
 ```bash
 npm run build
+```
+
+Start the controller and standalone frontend in separate terminals:
+
+```bash
 npm run start:controller
 npm run start
 ```
 
-`npm run start` launches the standalone server through `scripts/project.mjs`.
-Never use plain `next start` — it breaks SSE streaming. The controller runs the
-same way in production as in development: `bun src/main.ts`.
+The production frontend binds to `127.0.0.1` and defaults to port `4783`. Set
+`PORT` to another port from 1024 through 65535 when needed. Use the repository
+start command rather than plain `next start`, because the project launcher also
+preserves the streaming setup.
 
-The production frontend binds only to `127.0.0.1` and defaults to port `4783`.
-`PORT` may be set to an integer from 1024 through 65535. Workspace paths are
-canonicalized and must be under `WORKSPACE_ROOTS`, a platform-path-delimited
-list that defaults to the current user's home directory. Add mounted locations
-explicitly, for example `WORKSPACE_ROOTS="$HOME:/Volumes/Projects"` on macOS.
-
-For private mobile access, first configure the exact Serve hostname:
+Build or install the desktop app only through the repository scripts:
 
 ```bash
-cd frontend
-ALLOWED_TAILSCALE_HOSTS=studio.example.ts.net npm start
-tailscale serve --bg http://127.0.0.1:4783
-tailscale serve status
+npm run desktop:build
+scripts/install-desktop-app.sh dev
 ```
 
-Serve supplies a private HTTPS tailnet URL. Both devices must be in the intended
-tailnet, and ACLs or grants should restrict the URL to its owner. Do not use
-Tailscale Funnel. `tailscale serve --bg` persists the proxy configuration across
-Tailscale restarts and reboots; it does not start Local Studio. Optionally set
-`ALLOWED_TAILSCALE_USERS` to a comma-separated login allowlist. The
-`Tailscale-User-Login` header is trusted only because the backend remains bound
-to loopback behind Serve.
+## Development
 
-Manual availability requires `npm start` to remain active. An OS-native user
-service can start the compiled app after login and restart it after a crash, but
-it is intentionally not installed automatically. The host must still be on,
-awake, online, and connected to Tailscale.
-
-## Remote / LAN deployment
-
-The controller binds `127.0.0.1` by default. Binding a non-loopback host (e.g.
-`LOCAL_STUDIO_HOST=0.0.0.0`) requires `LOCAL_STUDIO_API_KEY` — startup throws
-without it. On a trusted LAN you may instead set
-`LOCAL_STUDIO_ALLOW_UNAUTHENTICATED=true` to opt out of authentication.
-
-Point the frontend at a remote controller with `BACKEND_URL` or
-`NEXT_PUBLIC_API_URL` (default `http://localhost:8080`).
-
-Deploy with your normal SSH or infrastructure workflow. The repository does not
-maintain a second deployment wrapper alongside the controller installer.
-
-The controller installer registers a persistent user service automatically
-(`launchd` on macOS and `systemd --user` on Linux), so installed controllers
-return after login without a repository daemon wrapper.
-
-## Validation
+Run the full repository gate before handing off a change:
 
 ```bash
 npm run check
 ```
 
-The configured pre-push hook (`.githooks/pre-push`) checks conventional commits
-and runs the frontend quality gate before pushing. The hook filenames are
-symlinks to `scripts/project.mjs`; they do not contain separate automation logic.
+This checks repository structure and contracts, controller quality, agent
+runtime quality, frontend lint and types, dependency hygiene, and the production
+frontend build.
 
-## Releases
+Keep changes focused, start branches from the current upstream `dev`, use
+conventional commits, and target `dev` with one scoped pull request. Do not
+commit secrets, runtime data, model weights, generated build output, or local
+environment files. Read [`AGENTS.md`](AGENTS.md) before contributing.
 
-Every successful `main` CI run builds an unsigned macOS app and keeps the
-exact-SHA package as a GitHub Actions artifact. Conventional commits
-then trigger `release.yml`. Semantic Release chooses the next version (`feat` →
-minor, breaking → major, all other allowed commit types → patch).
+## Project map
 
-The release workflow builds the exact revision without Apple credentials,
-then passes only that unsigned app bundle to a separate signing job. The signing
-job installs the lockfile-pinned signing tooling without lifecycle scripts,
-signs, notarizes and staples the release assets, and hands them to a final
-publish job. Each stage rechecks that its revision is still `origin/main`; only
-the final stage can create the GitHub release with the DMG, updater files,
-stable website alias, checksums, and source manifest. There is no npm publish
-and tags are never created by hand.
+| Path                      | Purpose                                                                  |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `controller/`             | Controller API, persistence, inference proxy, local and remote lifecycle |
+| `controller/contracts/`   | Shared controller wire contracts                                         |
+| `frontend/`               | Web UI and Electron desktop shell                                        |
+| `services/agent-runtime/` | Pi agent runtime service                                                 |
+| `shared/agent/`           | Shared agent request and model contracts                                 |
+| `docs/`                   | Architecture and operational documentation                               |
+| `scripts/`                | Setup, validation, installation, and project automation                  |
 
-## Acknowledgements
+## Upstream and license
 
-Local Studio is built with and inspired by exceptional open-source work:
+ModelHost Studio builds on Local Studio and its open-source dependencies,
+including [Pi](https://github.com/earendil-works/pi),
+[vLLM](https://github.com/vllm-project/vllm),
+[SGLang](https://github.com/sgl-project/sglang), and
+[llama.cpp](https://github.com/ggml-org/llama.cpp).
 
-- [Pi](https://github.com/earendil-works/pi) — the agent runtime and native
-  session model behind Workbench.
-- [T3 Code](https://github.com/pingdotgg/t3code) — inspiration for a focused,
-  developer-first coding workbench.
-- [SGLang](https://github.com/sgl-project/sglang) — a high-performance model
-  serving backend supported by Local Studio recipes.
-- [vLLM](https://github.com/vllm-project/vllm) — a high-throughput inference
-  and serving backend supported throughout Local Studio.
-- [Convex](https://github.com/get-convex/convex-backend) — inspiration for
-  reactive, real-time application architecture.
-
-## Contributing
-
-Contributions should be small, focused, and easy to review. Start from the
-latest `dev`, one logical change per branch, no formatting-only rewrites, no
-secrets or build artifacts. Run `npm run check` before opening a PR; include a concise summary, the validation
-commands you ran, and screenshots for UI changes. See AGENTS.md for the full
-code standards an agent (or contributor) must follow.
-
-## License
-
-See [LICENSE](LICENSE).
+See [`LICENSE`](LICENSE) for the repository license.
